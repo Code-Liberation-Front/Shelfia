@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,6 +46,7 @@ import androidx.media3.session.MediaController
 import app.shelfie.ShelfieApp
 import app.shelfie.data.LibraryItemExpanded
 import app.shelfie.data.PodcastEpisode
+import app.shelfie.playlist.PlaylistEntry
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -113,6 +116,7 @@ fun EpisodesScreen(
         is EpisodesUi.Ready -> {
             val activeDownloads by app.downloads.active.collectAsState()
             val completedDownloads by app.downloads.completed.collectAsState()
+            val playlistEntries by app.playlist.entries.collectAsState()
             LazyColumn(Modifier.fillMaxSize()) {
                 item {
                     PodcastHeader(
@@ -136,6 +140,19 @@ fun EpisodesScreen(
                         row = row,
                         downloadUi = downloadUi,
                         onDownload = { app.downloads.download(state.podcast, row.episode) },
+                        inPlaylist = playlistEntries.any {
+                            it.itemId == itemId && it.episodeId == row.episode.id
+                        },
+                        onTogglePlaylist = {
+                            app.playlist.toggle(
+                                PlaylistEntry(
+                                    itemId = itemId,
+                                    episodeId = row.episode.id,
+                                    title = row.episode.title ?: "Episode",
+                                    podcastTitle = state.podcast.media.metadata.title ?: "",
+                                ),
+                            )
+                        },
                         isCurrent = playerState.mediaId == "episode:$itemId:${row.episode.id}",
                         isPlaying = playerState.isPlaying,
                         onClick = {
@@ -204,6 +221,8 @@ private fun EpisodeRow(
     row: EpisodeRowData,
     downloadUi: DownloadUi,
     onDownload: () -> Unit,
+    inPlaylist: Boolean,
+    onTogglePlaylist: () -> Unit,
     isCurrent: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
@@ -243,6 +262,13 @@ private fun EpisodeRow(
             }
         }
         Spacer(Modifier.width(4.dp))
+        IconButton(onClick = onTogglePlaylist) {
+            Icon(
+                if (inPlaylist) Icons.Filled.PlaylistAddCheck else Icons.Filled.PlaylistAdd,
+                contentDescription = if (inPlaylist) "Remove from playlist" else "Add to playlist",
+                tint = if (inPlaylist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         when (downloadUi) {
             is DownloadUi.None -> IconButton(onClick = onDownload) {
                 Icon(

@@ -6,9 +6,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -25,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -40,6 +46,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -168,6 +176,7 @@ private val BOTTOM_TABS = listOf(
     BottomTab("home", "Home", Icons.Filled.Home),
     BottomTab("latest", "Latest", Icons.Filled.Schedule),
     BottomTab("library", "Library", Icons.Filled.GridView),
+    BottomTab("playlist", "Playlist", Icons.Filled.PlaylistPlay),
 )
 
 @Composable
@@ -177,14 +186,61 @@ fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val onTabScreen = BOTTOM_TABS.any { it.route == currentRoute }
+    val isOnline by rememberIsOnline()
+    var playerExpanded by rememberSaveable { mutableStateOf(false) }
 
+    BackHandler(enabled = playerExpanded) { playerExpanded = false }
+
+    Box(Modifier.fillMaxSize()) {
+        MainScaffold(
+            app = app,
+            controller = controller,
+            navController = navController,
+            playerState = playerState,
+            onTabScreen = onTabScreen,
+            currentRoute = currentRoute,
+            isOnline = isOnline,
+            onExpandPlayer = { playerExpanded = true },
+        )
+        // Apple Music-style full-screen player: slides up over everything,
+        // including the now-playing bar and bottom navigation.
+        AnimatedVisibility(
+            visible = playerExpanded,
+            enter = slideInVertically(animationSpec = tween(300), initialOffsetY = { it }),
+            exit = slideOutVertically(animationSpec = tween(300), targetOffsetY = { it }),
+        ) {
+            PlayerScreen(
+                state = playerState,
+                controller = controller,
+                onBack = { playerExpanded = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun MainScaffold(
+    app: ShelfieApp,
+    controller: MediaController?,
+    navController: androidx.navigation.NavHostController,
+    playerState: PlayerUiState,
+    onTabScreen: Boolean,
+    currentRoute: String?,
+    isOnline: Boolean,
+    onExpandPlayer: () -> Unit,
+) {
     Scaffold(
         topBar = {
-            if (onTabScreen) {
-                ShelfieTopBar(
-                    onSearch = { navController.navigate("search") { launchSingleTop = true } },
-                    onSettings = { navController.navigate("settings") { launchSingleTop = true } },
-                )
+            Column {
+                if (onTabScreen) {
+                    ShelfieTopBar(
+                        onSearch = { navController.navigate("search") { launchSingleTop = true } },
+                        onSettings = { navController.navigate("settings") { launchSingleTop = true } },
+                    )
+                }
+                if (!isOnline) {
+                    OfflineBanner(padStatusBar = !onTabScreen)
+                }
             }
         },
         bottomBar = {
@@ -194,9 +250,7 @@ fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
                 NowPlayingBar(
                     state = playerState,
                     controller = controller,
-                    onExpand = {
-                        navController.navigate("player") { launchSingleTop = true }
-                    },
+                    onExpand = onExpandPlayer,
                 )
                 if (onTabScreen) {
                     NavigationBar {
@@ -254,11 +308,11 @@ fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable("player") {
-                PlayerScreen(
-                    state = playerState,
+            composable("playlist") {
+                PlaylistScreen(
+                    app = app,
                     controller = controller,
-                    onBack = { navController.popBackStack() },
+                    playerState = playerState,
                 )
             }
             composable("search") {
