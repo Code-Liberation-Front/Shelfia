@@ -89,7 +89,7 @@ class AbsRepository(private val settings: SettingsStore) {
             ?: throw IllegalStateException("No sign-in attempt in progress. Please start over.")
         val response = buildApi(server, token = null).oidcCallback(code, state, verifier)
         configure(server, response.user.token)
-        settings.saveLogin(server, response.user.token, response.user.id)
+        settings.saveLogin(server, response.user.token, response.user.id, response.user.username)
         settings.clearPendingOidc()
     }
 
@@ -98,7 +98,7 @@ class AbsRepository(private val settings: SettingsStore) {
         val anonymous = buildApi(server, token = null)
         val response = anonymous.login(LoginRequest(username, password))
         configure(server, response.user.token)
-        settings.saveLogin(server, response.user.token, response.user.id)
+        settings.saveLogin(server, response.user.token, response.user.id, response.user.username)
     }
 
     suspend fun logout() {
@@ -153,8 +153,14 @@ class AbsRepository(private val settings: SettingsStore) {
     suspend fun progress(itemId: String, episodeId: String, maxAgeMs: Long = 30_000): MediaProgress? =
         progressMap(maxAgeMs)["$itemId:$episodeId"]
 
+    data class InProgressEpisode(
+        val podcast: LibraryItemExpanded,
+        val episode: PodcastEpisode,
+        val progress: Double,
+    )
+
     /** Episodes the user has started but not finished, most recently played first. */
-    suspend fun continueListening(limit: Int = 15): List<Pair<LibraryItemExpanded, PodcastEpisode>> =
+    suspend fun continueListening(limit: Int = 15): List<InProgressEpisode> =
         progressMap().values
             .filter { it.episodeId != null && !it.isFinished && it.currentTime > 0 }
             .sortedByDescending { it.lastUpdate }
@@ -164,8 +170,19 @@ class AbsRepository(private val settings: SettingsStore) {
                     ?: return@mapNotNull null
                 val episode = podcast.media.episodes.firstOrNull { it.id == mp.episodeId }
                     ?: return@mapNotNull null
-                podcast to episode
+                InProgressEpisode(podcast, episode, mp.progress.coerceIn(0.0, 1.0))
             }
+
+    /** Most recently added podcasts in the library. */
+    suspend fun recentlyAdded(limit: Int = 12): List<LibraryItemSummary> =
+        podcasts().sortedByDescending { it.addedAt }.take(limit)
+
+    /** Newest episodes across the whole library, latest first. */
+    suspend fun latestEpisodes(limit: Int = 75): List<PodcastEpisode> =
+        requireApi().recentEpisodes(podcastLibraryId(), limit).episodes
+            .sortedByDescending { it.publishedAt ?: 0 }
+
+    suspend fun listeningStats(): ListeningStats = requireApi().listeningStats()
 
     /**
      * Title/author search across podcasts plus episode-title search, used by

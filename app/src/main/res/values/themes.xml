@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Shelfie" parent="android:Theme.Material.NoActionBar">
+    <!-- AppCompat parent: the activity must be an AppCompatActivity (a
+         FragmentActivity) so the Cast device-chooser dialog can attach. -->
+    <style name="Theme.Shelfie" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">#FC7E0F</item>
+        <item name="colorAccent">#FC7E0F</item>
         <item name="android:windowBackground">#FF14181C</item>
         <item name="android:statusBarColor">#FF14181C</item>
         <item name="android:navigationBarColor">#FF14181C</item>
+    </style>
+
+    <!-- AppCompat-based theme required to inflate the MediaRouteButton (cast picker). -->
+    <style name="Theme.Shelfie.Cast" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">#FC7E0F</item>
+        <item name="colorAccent">#FC7E0F</item>
     </style>
 </resources>

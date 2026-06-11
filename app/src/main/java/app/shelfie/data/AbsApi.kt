@@ -34,11 +34,20 @@ interface AbsApi {
         @Query("sort") sort: String = "media.metadata.title",
     ): LibraryItemsResponse
 
+    @GET("api/libraries/{id}/recent-episodes")
+    suspend fun recentEpisodes(
+        @Path("id") libraryId: String,
+        @Query("limit") limit: Int = 50,
+    ): RecentEpisodesResponse
+
     @GET("api/items/{id}")
     suspend fun item(
         @Path("id") itemId: String,
         @Query("expanded") expanded: Int = 1,
     ): LibraryItemExpanded
+
+    @GET("api/me/listening-stats")
+    suspend fun listeningStats(): ListeningStats
 
     @PATCH("api/me/progress/{itemId}/{episodeId}")
     suspend fun updateEpisodeProgress(

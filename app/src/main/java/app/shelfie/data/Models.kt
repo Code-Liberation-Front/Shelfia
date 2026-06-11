@@ -71,6 +71,7 @@ data class LibraryItemsResponse(
 @Serializable
 data class LibraryItemSummary(
     val id: String = "",
+    val addedAt: Long = 0,
     val media: MediaSummary = MediaSummary(),
 )
 
@@ -117,12 +118,24 @@ data class PodcastEpisode(
 data class AudioFile(
     val ino: String = "",
     val duration: Double = 0.0,
+    val mimeType: String? = null,
 )
 
 @Serializable
 data class AudioTrack(
     val duration: Double = 0.0,
     val contentUrl: String? = null,
+)
+
+@Serializable
+data class RecentEpisodesResponse(
+    val episodes: List<PodcastEpisode> = emptyList(),
+)
+
+@Serializable
+data class ListeningStats(
+    val totalTime: Double = 0.0,
+    val today: Double = 0.0,
 )
 
 @Serializable

@@ -16,6 +16,13 @@ fun formatDuration(totalSeconds: Long): String {
     }
 }
 
+/** Formats a listening-time total like "12h 34m" or "45m". */
+fun formatListeningTime(totalSeconds: Double): String {
+    val minutes = (totalSeconds / 60).toLong()
+    val hours = minutes / 60
+    return if (hours > 0) "${hours}h ${minutes % 60}m" else "${minutes}m"
+}
+
 fun formatDate(epochMs: Long?): String {
     if (epochMs == null || epochMs <= 0) return ""
     return SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(epochMs))

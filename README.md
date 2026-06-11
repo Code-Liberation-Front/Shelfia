@@ -9,6 +9,10 @@ A better podcast client for [Audiobookshelf](https://www.audiobookshelf.org/) on
 Shelfie connects to your self-hosted Audiobookshelf server and turns your podcast library into a fast, focused listening app:
 
 - **Sign in to your server** — works with any Audiobookshelf instance (HTTPS or HTTP); supports both username/password and **OIDC single sign-on** (enter the server URL first, then pick whichever method your server offers)
+- **Home / Latest / Library tabs** — Home shows Continue Listening and Recently Added shelves; Latest lists the newest episodes across your whole library; Library is the full cover-art grid
+- **Search** — find podcasts and episodes by name from the top bar
+- **Chromecast** — cast playback to a TV or speaker from the cast button in the top bar
+- **Settings** — view your account and listening stats, switch servers/users
 - **Browse your podcast library** — cover-art grid, episode lists with publish dates and durations
 - **Stream episodes** with background playback, media notification, lockscreen/Bluetooth controls
 - **Android Auto** — browse podcasts and episodes and control playback from your car

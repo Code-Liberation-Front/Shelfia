@@ -8,6 +8,9 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.DefaultMediaItemConverter
+import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -20,6 +23,7 @@ import app.shelfie.data.LibraryItemExpanded
 import app.shelfie.data.LibraryItemSummary
 import app.shelfie.data.PodcastEpisode
 import app.shelfie.ui.MainActivity
+import com.google.android.gms.cast.framework.CastContext
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -56,8 +60,11 @@ private const val STATUS_FULLY_PLAYED = 2
 class PlaybackService : MediaLibraryService() {
 
     private lateinit var player: ExoPlayer
+    private var castPlayer: CastPlayer? = null
     private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    private val activePlayer: Player? get() = mediaSession?.player
 
     private val app get() = application as ShelfieApp
     private val repo get() = app.repository
@@ -95,7 +102,39 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
         })
+        initCast()
         startProgressSync()
+    }
+
+    /** Chromecast support: swaps the session's player when a cast session starts/ends. */
+    private fun initCast() {
+        runCatching {
+            val castContext = CastContext.getSharedInstance(this)
+            castPlayer = CastPlayer(castContext, DefaultMediaItemConverter(), 10_000, 30_000).apply {
+                setSessionAvailabilityListener(object : SessionAvailabilityListener {
+                    override fun onCastSessionAvailable() = switchPlayer(this@apply)
+                    override fun onCastSessionUnavailable() = switchPlayer(player)
+                })
+            }
+        }
+    }
+
+    private fun switchPlayer(newPlayer: Player) {
+        val session = mediaSession ?: return
+        val old = session.player
+        if (old === newPlayer) return
+        val items = (0 until old.mediaItemCount).map { old.getMediaItemAt(it) }
+        val index = old.currentMediaItemIndex
+        val position = old.currentPosition
+        val playWhenReady = old.playWhenReady
+        session.player = newPlayer
+        if (items.isNotEmpty()) {
+            newPlayer.setMediaItems(items, index, position)
+            newPlayer.playWhenReady = playWhenReady
+            newPlayer.prepare()
+        }
+        old.stop()
+        old.clearMediaItems()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
@@ -111,6 +150,9 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.cancel()
         mediaSession?.release()
         mediaSession = null
+        castPlayer?.setSessionAvailabilityListener(null)
+        castPlayer?.release()
+        castPlayer = null
         player.release()
         super.onDestroy()
     }
@@ -121,20 +163,21 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch {
             while (isActive) {
                 delay(15_000)
-                if (player.isPlaying) pushProgress()
+                if (activePlayer?.isPlaying == true) pushProgress()
             }
         }
     }
 
     /** Reads player state on the main thread, then reports progress to the server. */
     private suspend fun pushProgress() {
-        val mediaId = player.currentMediaItem?.mediaId ?: return
+        val current = activePlayer ?: return
+        val mediaId = current.currentMediaItem?.mediaId ?: return
         if (!mediaId.startsWith(EPISODE_PREFIX)) return
-        if (player.playbackState != Player.STATE_READY && player.playbackState != Player.STATE_ENDED) return
+        if (current.playbackState != Player.STATE_READY && current.playbackState != Player.STATE_ENDED) return
         val parts = mediaId.split(":", limit = 3)
         if (parts.size != 3) return
-        val positionMs = player.currentPosition
-        val durationMs = player.duration
+        val positionMs = current.currentPosition
+        val durationMs = current.duration
         val durationSec = if (durationMs != C.TIME_UNSET) durationMs / 1000.0 else 0.0
         app.settings.saveLastPlayed(mediaId, positionMs)
         withContext(Dispatchers.IO) {
@@ -196,8 +239,8 @@ class PlaybackService : MediaLibraryService() {
                             parentId == ROOT_ID -> rootTabs()
 
                             parentId == CONTINUE_ID ->
-                                repo.continueListening().map { (podcast, episode) ->
-                                    episodeItem(podcast, episode, withUri = false)
+                                repo.continueListening().map {
+                                    episodeItem(it.podcast, it.episode, withUri = false)
                                 }
 
                             parentId == PODCASTS_ID ->
@@ -485,7 +528,11 @@ class PlaybackService : MediaLibraryService() {
             .setMediaId("$EPISODE_PREFIX${podcast.id}:${episode.id}")
             .setMediaMetadata(metadata)
         if (withUri) {
-            repo.streamUrl(podcast.id, episode)?.let { builder.setUri(it) }
+            repo.streamUrl(podcast.id, episode)?.let { url ->
+                builder.setUri(url)
+                // The Cast media item converter requires a MIME type.
+                builder.setMimeType(episode.audioFile?.mimeType ?: "audio/mpeg")
+            }
         }
         return builder.build()
     }
