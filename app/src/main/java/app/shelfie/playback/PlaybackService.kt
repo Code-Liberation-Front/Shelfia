@@ -528,10 +528,17 @@ class PlaybackService : MediaLibraryService() {
             .setMediaId("$EPISODE_PREFIX${podcast.id}:${episode.id}")
             .setMediaMetadata(metadata)
         if (withUri) {
-            repo.streamUrl(podcast.id, episode)?.let { url ->
-                builder.setUri(url)
-                // The Cast media item converter requires a MIME type.
+            // Prefer the downloaded copy so playback works offline.
+            val localUri = app.downloads.localUri(podcast.id, episode.id)
+            if (localUri != null) {
+                builder.setUri(localUri)
                 builder.setMimeType(episode.audioFile?.mimeType ?: "audio/mpeg")
+            } else {
+                repo.streamUrl(podcast.id, episode)?.let { url ->
+                    builder.setUri(url)
+                    // The Cast media item converter requires a MIME type.
+                    builder.setMimeType(episode.audioFile?.mimeType ?: "audio/mpeg")
+                }
             }
         }
         return builder.build()

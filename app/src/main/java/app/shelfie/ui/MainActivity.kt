@@ -272,6 +272,13 @@ fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
             composable("settings") {
                 SettingsScreen(
                     app = app,
+                    onOpenDownloads = { navController.navigate("downloads") { launchSingleTop = true } },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable("downloads") {
+                DownloadsScreen(
+                    app = app,
                     onBack = { navController.popBackStack() },
                 )
             }

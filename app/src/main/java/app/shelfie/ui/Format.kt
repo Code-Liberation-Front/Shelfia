@@ -16,6 +16,13 @@ fun formatDuration(totalSeconds: Long): String {
     }
 }
 
+fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_000_000_000 -> String.format(Locale.US, "%.2f GB", bytes / 1_000_000_000.0)
+    bytes >= 1_000_000 -> String.format(Locale.US, "%.1f MB", bytes / 1_000_000.0)
+    bytes >= 1_000 -> String.format(Locale.US, "%.0f KB", bytes / 1_000.0)
+    else -> "$bytes B"
+}
+
 /** Formats a listening-time total like "12h 34m" or "45m". */
 fun formatListeningTime(totalSeconds: Double): String {
     val minutes = (totalSeconds / 60).toLong()

@@ -13,6 +13,7 @@ Shelfie connects to your self-hosted Audiobookshelf server and turns your podcas
 - **Search** — find podcasts and episodes by name from the top bar
 - **Chromecast** — cast playback to a TV or speaker from the cast button in the top bar
 - **Settings** — view your account and listening stats, switch servers/users
+- **Downloads & offline** — download episodes for offline listening (with live progress and speed in Settings → Downloads); the library, episode lists, and listening progress are cached so the app works without a connection and plays downloaded episodes
 - **Browse your podcast library** — cover-art grid, episode lists with publish dates and durations
 - **Stream episodes** with background playback, media notification, lockscreen/Bluetooth controls
 - **Android Auto** — browse podcasts and episodes and control playback from your car

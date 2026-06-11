@@ -1,11 +1,14 @@
 package app.shelfie.data
 
 import android.util.Base64
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.io.File
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -16,7 +19,15 @@ import java.util.concurrent.ConcurrentHashMap
  * Retrofit client plus small in-memory caches shared by the UI and the
  * playback service.
  */
-class AbsRepository(private val settings: SettingsStore) {
+class AbsRepository(
+    private val settings: SettingsStore,
+    /** Directory for offline JSON caches; falls back to network-only when null. */
+    private val cacheDir: File? = null,
+) {
+
+    init {
+        cacheDir?.mkdirs()
+    }
 
     @Volatile
     var serverUrl: String = ""
@@ -124,15 +135,25 @@ class AbsRepository(private val settings: SettingsStore) {
 
     suspend fun podcasts(forceRefresh: Boolean = false): List<LibraryItemSummary> {
         if (!forceRefresh && podcastsCache.isNotEmpty()) return podcastsCache
-        val libraryId = podcastLibraryId()
-        val items = requireApi().libraryItems(libraryId).results
+        val items = try {
+            val libraryId = podcastLibraryId()
+            requireApi().libraryItems(libraryId).results.also {
+                diskCacheWrite("podcasts.json", it)
+            }
+        } catch (e: Exception) {
+            diskCacheRead<List<LibraryItemSummary>>("podcasts.json") ?: throw e
+        }
         podcastsCache = items
         return items
     }
 
     suspend fun podcast(itemId: String, forceRefresh: Boolean = false): LibraryItemExpanded {
         if (!forceRefresh) itemCache[itemId]?.let { return it }
-        val item = requireApi().item(itemId)
+        val item = try {
+            requireApi().item(itemId).also { diskCacheWrite("item_$itemId.json", it) }
+        } catch (e: Exception) {
+            diskCacheRead<LibraryItemExpanded>("item_$itemId.json") ?: throw e
+        }
         itemCache[itemId] = item
         return item
     }
@@ -141,11 +162,21 @@ class AbsRepository(private val settings: SettingsStore) {
     private suspend fun progressMap(maxAgeMs: Long = 30_000): Map<String, MediaProgress> {
         val now = System.currentTimeMillis()
         if (now - progressFetchedAt > maxAgeMs) {
-            val me = requireApi().me()
-            progressCache = me.mediaProgress
-                .filter { it.episodeId != null }
-                .associateBy { "${it.libraryItemId}:${it.episodeId}" }
-            progressFetchedAt = now
+            try {
+                val me = requireApi().me()
+                progressCache = me.mediaProgress
+                    .filter { it.episodeId != null }
+                    .associateBy { "${it.libraryItemId}:${it.episodeId}" }
+                progressFetchedAt = now
+                diskCacheWrite("progress.json", progressCache.values.toList())
+            } catch (e: Exception) {
+                if (progressCache.isEmpty()) {
+                    progressCache = diskCacheRead<List<MediaProgress>>("progress.json")
+                        ?.associateBy { "${it.libraryItemId}:${it.episodeId}" }
+                        ?: emptyMap()
+                }
+                // Offline: serve the last known progress instead of failing.
+            }
         }
         return progressCache
     }
@@ -178,9 +209,13 @@ class AbsRepository(private val settings: SettingsStore) {
         podcasts().sortedByDescending { it.addedAt }.take(limit)
 
     /** Newest episodes across the whole library, latest first. */
-    suspend fun latestEpisodes(limit: Int = 75): List<PodcastEpisode> =
+    suspend fun latestEpisodes(limit: Int = 75): List<PodcastEpisode> = try {
         requireApi().recentEpisodes(podcastLibraryId(), limit).episodes
             .sortedByDescending { it.publishedAt ?: 0 }
+            .also { diskCacheWrite("latest.json", it) }
+    } catch (e: Exception) {
+        diskCacheRead<List<PodcastEpisode>>("latest.json") ?: throw e
+    }
 
     suspend fun listeningStats(): ListeningStats = requireApi().listeningStats()
 
@@ -238,6 +273,14 @@ class AbsRepository(private val settings: SettingsStore) {
 
     private fun requireApi(): AbsApi =
         api ?: throw IllegalStateException("Not logged in")
+
+    private inline fun <reified T> diskCacheWrite(name: String, value: T) {
+        runCatching { cacheDir?.resolve(name)?.writeText(json.encodeToString(value)) }
+    }
+
+    private inline fun <reified T> diskCacheRead(name: String): T? = runCatching {
+        cacheDir?.resolve(name)?.takeIf { it.exists() }?.readText()?.let { json.decodeFromString<T>(it) }
+    }.getOrNull()
 
     private fun buildApi(serverUrl: String, token: String?): AbsApi {
         val client = OkHttpClient.Builder()

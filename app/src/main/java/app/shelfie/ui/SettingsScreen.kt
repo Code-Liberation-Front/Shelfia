@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsScreen(app: ShelfieApp, onBack: () -> Unit) {
+fun SettingsScreen(app: ShelfieApp, onOpenDownloads: () -> Unit, onBack: () -> Unit) {
     val credentials by app.settings.credentials.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
 
@@ -78,6 +78,25 @@ fun SettingsScreen(app: ShelfieApp, onBack: () -> Unit) {
                 "Today",
                 stats?.let { formatListeningTime(it.today) } ?: "—",
             )
+        }
+
+        val downloads by app.downloads.completed.collectAsState()
+        val activeDownloads by app.downloads.active.collectAsState()
+        OutlinedButton(
+            onClick = onOpenDownloads,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            val label = buildString {
+                append("Downloads")
+                if (activeDownloads.isNotEmpty()) {
+                    append(" • ${activeDownloads.size} in progress")
+                } else if (downloads.isNotEmpty()) {
+                    append(" • ${downloads.size} episodes (${formatBytes(downloads.sumOf { it.sizeBytes })})")
+                }
+            }
+            Text(label)
         }
 
         val context = LocalContext.current
