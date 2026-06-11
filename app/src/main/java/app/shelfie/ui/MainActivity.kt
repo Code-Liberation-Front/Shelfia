@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
@@ -185,7 +187,9 @@ fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
             }
         },
         bottomBar = {
-            Column {
+            // The NavigationBar consumes the gesture-nav inset itself; when it's
+            // hidden the now-playing bar must avoid the navigation bar on its own.
+            Column(if (onTabScreen) Modifier else Modifier.navigationBarsPadding()) {
                 NowPlayingBar(
                     state = playerState,
                     controller = controller,
@@ -280,6 +284,7 @@ private fun ShelfieTopBar(onSearch: () -> Unit, onSettings: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Image(
