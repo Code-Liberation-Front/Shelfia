@@ -156,13 +156,6 @@ fun LoginScreen(app: ShelfieApp, externalError: String? = null) {
                 ) {
                     Text(currentStatus.authFormData?.authOpenIDButtonText ?: "Sign in with SSO")
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "If the browser shows HTTP 400, your server's \"Allowed Mobile Redirect URIs\" " +
-                        "must include audiobookshelf://oauth (Audiobookshelf Settings → Authentication).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
 
             if (currentStatus.supportsOpenId && currentStatus.supportsLocal) {
