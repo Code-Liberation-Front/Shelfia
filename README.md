@@ -29,7 +29,15 @@ Sideload it by enabling *Install unknown apps* for your browser/file manager, th
 
 ## Android Auto
 
-Shelfie ships a Media3 `MediaLibraryService`, so it appears as a media app in Android Auto automatically once installed and signed in. Because sideloaded apps are hidden by default, enable developer mode in the Android Auto settings on your phone and check **"Unknown sources"**, then Shelfie will show up on the car launcher with a *Podcasts → Episodes* browse tree.
+Shelfie ships a Media3 `MediaLibraryService`, so it appears as a media app in Android Auto automatically once installed and signed in. In the car you get:
+
+- **Continue Listening** tab — episodes you've started, one tap to resume from where you left off
+- **Podcasts** tab — your library as a cover grid, episodes as lists with played/in-progress badges
+- **Full-podcast queueing** — playing an episode queues the rest of the show so next/previous track buttons work
+- **Search** — both the browse search UI and voice ("play *<podcast>* on Shelfie")
+- **Resume** — Auto's resume card restores your last episode and position even after the app was killed
+
+Because sideloaded apps are hidden by default, enable developer mode in the Android Auto settings on your phone and check **"Unknown sources"**, then Shelfie will show up on the car launcher.
 
 ## Building locally
 

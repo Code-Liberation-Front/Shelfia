@@ -2,6 +2,7 @@ package app.shelfie.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +29,8 @@ class SettingsStore(private val context: Context) {
         val libraryId = stringPreferencesKey("library_id")
         val pendingOidcServer = stringPreferencesKey("pending_oidc_server")
         val pendingOidcVerifier = stringPreferencesKey("pending_oidc_verifier")
+        val lastPlayedMediaId = stringPreferencesKey("last_played_media_id")
+        val lastPlayedPositionMs = longPreferencesKey("last_played_position_ms")
     }
 
     val credentials: Flow<Credentials> = context.dataStore.data.map { prefs ->
@@ -66,6 +69,20 @@ class SettingsStore(private val context: Context) {
         val server = prefs[Keys.pendingOidcServer] ?: return null
         val verifier = prefs[Keys.pendingOidcVerifier] ?: return null
         return server to verifier
+    }
+
+    /** Remembers the most recent episode for Android Auto playback resumption. */
+    suspend fun saveLastPlayed(mediaId: String, positionMs: Long) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.lastPlayedMediaId] = mediaId
+            prefs[Keys.lastPlayedPositionMs] = positionMs
+        }
+    }
+
+    suspend fun lastPlayed(): Pair<String, Long>? {
+        val prefs = context.dataStore.data.first()
+        val mediaId = prefs[Keys.lastPlayedMediaId] ?: return null
+        return mediaId to (prefs[Keys.lastPlayedPositionMs] ?: 0L)
     }
 
     suspend fun clearPendingOidc() {

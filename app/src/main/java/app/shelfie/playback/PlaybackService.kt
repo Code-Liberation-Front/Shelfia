@@ -3,6 +3,7 @@ package app.shelfie.playback
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -33,8 +34,23 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val ROOT_ID = "root"
+private const val CONTINUE_ID = "continue"
+private const val PODCASTS_ID = "podcasts"
 private const val PODCAST_PREFIX = "podcast:"
 private const val EPISODE_PREFIX = "episode:"
+
+// Android Auto content-style hints (androidx.media legacy extras understood by Auto).
+private const val EXTRA_STYLE_BROWSABLE = "android.media.browse.CONTENT_STYLE_BROWSABLE_HINT"
+private const val EXTRA_STYLE_PLAYABLE = "android.media.browse.CONTENT_STYLE_PLAYABLE_HINT"
+private const val STYLE_LIST = 1
+private const val STYLE_GRID = 2
+
+// Android Auto completion badges on playable items.
+private const val EXTRA_COMPLETION_STATUS = "android.media.extra.PLAYBACK_STATUS"
+private const val EXTRA_COMPLETION_PERCENTAGE = "androidx.media.MediaItem.Extras.COMPLETION_PERCENTAGE"
+private const val STATUS_NOT_PLAYED = 0
+private const val STATUS_PARTIALLY_PLAYED = 1
+private const val STATUS_FULLY_PLAYED = 2
 
 @UnstableApi
 class PlaybackService : MediaLibraryService() {
@@ -43,7 +59,8 @@ class PlaybackService : MediaLibraryService() {
     private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private val repo get() = (application as ShelfieApp).repository
+    private val app get() = application as ShelfieApp
+    private val repo get() = app.repository
 
     override fun onCreate() {
         super.onCreate()
@@ -116,13 +133,14 @@ class PlaybackService : MediaLibraryService() {
         if (player.playbackState != Player.STATE_READY && player.playbackState != Player.STATE_ENDED) return
         val parts = mediaId.split(":", limit = 3)
         if (parts.size != 3) return
-        val positionSec = player.currentPosition / 1000.0
+        val positionMs = player.currentPosition
         val durationMs = player.duration
         val durationSec = if (durationMs != C.TIME_UNSET) durationMs / 1000.0 else 0.0
+        app.settings.saveLastPlayed(mediaId, positionMs)
         withContext(Dispatchers.IO) {
             runCatching {
                 if (repo.ensureConfigured()) {
-                    repo.updateProgress(parts[1], parts[2], positionSec, durationSec)
+                    repo.updateProgress(parts[1], parts[2], positionMs / 1000.0, durationSec)
                 }
             }
         }
@@ -130,7 +148,7 @@ class PlaybackService : MediaLibraryService() {
 
     // endregion
 
-    // region browse tree / item resolution
+    // region browse tree / search / item resolution
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
 
@@ -143,14 +161,19 @@ class PlaybackService : MediaLibraryService() {
                 .setMediaId(ROOT_ID)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
-                        .setTitle("Podcasts")
+                        .setTitle("Shelfie")
                         .setIsBrowsable(true)
                         .setIsPlayable(false)
-                        .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_PODCASTS)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
                         .build(),
                 )
                 .build()
-            return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
+            val rootExtras = Bundle().apply {
+                putInt(EXTRA_STYLE_BROWSABLE, STYLE_GRID)
+                putInt(EXTRA_STYLE_PLAYABLE, STYLE_LIST)
+            }
+            val rootParams = MediaLibraryService.LibraryParams.Builder().setExtras(rootExtras).build()
+            return Futures.immediateFuture(LibraryResult.ofItem(rootItem, rootParams))
         }
 
         override fun onGetChildren(
@@ -170,7 +193,14 @@ class PlaybackService : MediaLibraryService() {
                     }
                     val children: List<MediaItem> = withContext(Dispatchers.IO) {
                         when {
-                            parentId == ROOT_ID ->
+                            parentId == ROOT_ID -> rootTabs()
+
+                            parentId == CONTINUE_ID ->
+                                repo.continueListening().map { (podcast, episode) ->
+                                    episodeItem(podcast, episode, withUri = false)
+                                }
+
+                            parentId == PODCASTS_ID ->
                                 repo.podcasts().map { it.toBrowsableItem() }
 
                             parentId.startsWith(PODCAST_PREFIX) -> {
@@ -208,6 +238,39 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
 
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: MediaLibraryService.LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> =
+            serviceScope.future {
+                try {
+                    val results = withContext(Dispatchers.IO) { searchItems(query) }
+                    session.notifySearchResultChanged(browser, query, results.size, params)
+                    LibraryResult.ofVoid()
+                } catch (e: Exception) {
+                    LibraryResult.ofError(LibraryResult.RESULT_ERROR_IO)
+                }
+            }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> =
+            serviceScope.future {
+                try {
+                    val results = withContext(Dispatchers.IO) { searchItems(query) }
+                    LibraryResult.ofItemList(ImmutableList.copyOf(results), params)
+                } catch (e: Exception) {
+                    LibraryResult.ofError(LibraryResult.RESULT_ERROR_IO)
+                }
+            }
+
         override fun onAddMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -228,16 +291,129 @@ class PlaybackService : MediaLibraryService() {
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
             serviceScope.future {
-                val resolved = withContext(Dispatchers.IO) {
-                    mediaItems.mapNotNull { runCatching { resolveEpisode(it.mediaId) }.getOrNull() }
+                withContext(Dispatchers.IO) {
+                    // Voice queries ("play <podcast> on Shelfie") arrive as items with a
+                    // search query instead of a media id.
+                    val voiceQuery = mediaItems
+                        .firstOrNull { !it.requestMetadata.searchQuery.isNullOrBlank() }
+                        ?.requestMetadata?.searchQuery
+                    val episodeIds = mediaItems.filter { it.mediaId.startsWith(EPISODE_PREFIX) }
+
+                    when {
+                        // Single episode tapped: queue the whole podcast so next/previous work.
+                        episodeIds.size == 1 ->
+                            podcastQueueFor(episodeIds[0].mediaId, startPositionMs)
+
+                        episodeIds.isNotEmpty() -> {
+                            val resolved = episodeIds.mapNotNull {
+                                runCatching { resolveEpisode(it.mediaId) }.getOrNull()
+                            }
+                            val index = if (startIndex == C.INDEX_UNSET) 0
+                            else startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
+                            var position = startPositionMs
+                            if (position == C.TIME_UNSET && resolved.isNotEmpty()) {
+                                position = savedPositionMs(resolved[index].mediaId)
+                            }
+                            MediaSession.MediaItemsWithStartPosition(resolved, index, position)
+                        }
+
+                        !voiceQuery.isNullOrBlank() -> queueForVoiceQuery(voiceQuery)
+
+                        else -> MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+                    }
                 }
-                val index = if (startIndex == C.INDEX_UNSET) 0 else startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
-                var position = startPositionMs
-                if (position == C.TIME_UNSET && resolved.isNotEmpty()) {
-                    position = withContext(Dispatchers.IO) { savedPositionMs(resolved[index].mediaId) }
-                }
-                MediaSession.MediaItemsWithStartPosition(resolved, index, position)
             }
+
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
+            serviceScope.future {
+                val (mediaId, storedPositionMs) = app.settings.lastPlayed()
+                    ?: throw UnsupportedOperationException("Nothing to resume")
+                withContext(Dispatchers.IO) {
+                    val serverPositionMs = savedPositionMs(mediaId)
+                    val position = if (serverPositionMs != C.TIME_UNSET) serverPositionMs else storedPositionMs
+                    podcastQueueFor(mediaId, position)
+                }
+            }
+    }
+
+    private fun rootTabs(): List<MediaItem> = listOf(
+        folderItem(
+            id = CONTINUE_ID,
+            title = "Continue Listening",
+            extras = Bundle().apply { putInt(EXTRA_STYLE_PLAYABLE, STYLE_LIST) },
+        ),
+        folderItem(
+            id = PODCASTS_ID,
+            title = "Podcasts",
+            extras = Bundle().apply { putInt(EXTRA_STYLE_BROWSABLE, STYLE_GRID) },
+        ),
+    )
+
+    private fun folderItem(id: String, title: String, extras: Bundle): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_PODCASTS)
+                    .setExtras(extras)
+                    .build(),
+            )
+            .build()
+
+    /** Browse-search and voice-search results: matching podcasts first, then episodes. */
+    private suspend fun searchItems(query: String): List<MediaItem> {
+        if (!repo.ensureConfigured()) return emptyList()
+        val (podcastMatches, episodeMatches) = repo.search(query)
+        return podcastMatches.map { it.toBrowsableItem() } +
+            episodeMatches.map { (podcast, episode) -> episodeItem(podcast, episode, withUri = false) }
+    }
+
+    /** Builds a queue for a voice query: best episode match, else latest episode of the best podcast. */
+    private suspend fun queueForVoiceQuery(query: String): MediaSession.MediaItemsWithStartPosition {
+        if (!repo.ensureConfigured()) return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        val (podcastMatches, episodeMatches) = repo.search(query)
+        val target: Pair<LibraryItemExpanded, PodcastEpisode>? = when {
+            episodeMatches.isNotEmpty() -> episodeMatches.first()
+            podcastMatches.isNotEmpty() -> {
+                val podcast = repo.podcast(podcastMatches.first().id)
+                podcast.media.episodes.maxByOrNull { it.publishedAt ?: 0 }?.let { podcast to it }
+            }
+
+            else -> null
+        }
+        val (podcast, episode) = target
+            ?: return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        return podcastQueueFor("$EPISODE_PREFIX${podcast.id}:${episode.id}", C.TIME_UNSET)
+    }
+
+    /**
+     * Expands a single episode into a queue of its whole podcast (newest first),
+     * positioned at that episode, resuming from the server-side position when
+     * no explicit position was requested.
+     */
+    private suspend fun podcastQueueFor(
+        mediaId: String,
+        startPositionMs: Long,
+    ): MediaSession.MediaItemsWithStartPosition {
+        val parts = mediaId.split(":", limit = 3)
+        if (parts.size != 3 || !repo.ensureConfigured()) {
+            return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        }
+        val podcast = repo.podcast(parts[1])
+        val ordered = podcast.media.episodes.sortedByDescending { it.publishedAt ?: 0 }
+        val queue = ordered.map { episodeItem(podcast, it, withUri = true) }
+        val index = ordered.indexOfFirst { it.id == parts[2] }.coerceAtLeast(0)
+        var position = startPositionMs
+        if (position == C.TIME_UNSET) {
+            position = savedPositionMs(mediaId)
+        }
+        return MediaSession.MediaItemsWithStartPosition(queue, index, position)
     }
 
     /** Looks up the server-side resume position for an episode media id. */
@@ -271,15 +447,30 @@ class PlaybackService : MediaLibraryService() {
                     .setIsBrowsable(true)
                     .setIsPlayable(false)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST)
+                    .setExtras(Bundle().apply { putInt(EXTRA_STYLE_PLAYABLE, STYLE_LIST) })
                     .build(),
             )
             .build()
 
-    private fun episodeItem(
+    private suspend fun episodeItem(
         podcast: LibraryItemExpanded,
         episode: PodcastEpisode,
         withUri: Boolean,
     ): MediaItem {
+        val extras = Bundle()
+        val progress = runCatching { repo.progress(podcast.id, episode.id) }.getOrNull()
+        when {
+            progress == null || progress.currentTime <= 0 ->
+                extras.putInt(EXTRA_COMPLETION_STATUS, STATUS_NOT_PLAYED)
+
+            progress.isFinished ->
+                extras.putInt(EXTRA_COMPLETION_STATUS, STATUS_FULLY_PLAYED)
+
+            else -> {
+                extras.putInt(EXTRA_COMPLETION_STATUS, STATUS_PARTIALLY_PLAYED)
+                extras.putDouble(EXTRA_COMPLETION_PERCENTAGE, progress.progress.coerceIn(0.0, 1.0))
+            }
+        }
         val metadata = MediaMetadata.Builder()
             .setTitle(episode.title ?: "Episode")
             .setArtist(podcast.media.metadata.title)
@@ -288,6 +479,7 @@ class PlaybackService : MediaLibraryService() {
             .setIsBrowsable(false)
             .setIsPlayable(true)
             .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
+            .setExtras(extras)
             .build()
         val builder = MediaItem.Builder()
             .setMediaId("$EPISODE_PREFIX${podcast.id}:${episode.id}")

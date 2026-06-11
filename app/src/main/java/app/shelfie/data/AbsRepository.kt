@@ -138,7 +138,7 @@ class AbsRepository(private val settings: SettingsStore) {
     }
 
     /** Server-side listening progress, cached briefly to avoid hammering /api/me. */
-    suspend fun progress(itemId: String, episodeId: String, maxAgeMs: Long = 30_000): MediaProgress? {
+    private suspend fun progressMap(maxAgeMs: Long = 30_000): Map<String, MediaProgress> {
         val now = System.currentTimeMillis()
         if (now - progressFetchedAt > maxAgeMs) {
             val me = requireApi().me()
@@ -147,7 +147,52 @@ class AbsRepository(private val settings: SettingsStore) {
                 .associateBy { "${it.libraryItemId}:${it.episodeId}" }
             progressFetchedAt = now
         }
-        return progressCache["$itemId:$episodeId"]
+        return progressCache
+    }
+
+    suspend fun progress(itemId: String, episodeId: String, maxAgeMs: Long = 30_000): MediaProgress? =
+        progressMap(maxAgeMs)["$itemId:$episodeId"]
+
+    /** Episodes the user has started but not finished, most recently played first. */
+    suspend fun continueListening(limit: Int = 15): List<Pair<LibraryItemExpanded, PodcastEpisode>> =
+        progressMap().values
+            .filter { it.episodeId != null && !it.isFinished && it.currentTime > 0 }
+            .sortedByDescending { it.lastUpdate }
+            .take(limit)
+            .mapNotNull { mp ->
+                val podcast = runCatching { podcast(mp.libraryItemId) }.getOrNull()
+                    ?: return@mapNotNull null
+                val episode = podcast.media.episodes.firstOrNull { it.id == mp.episodeId }
+                    ?: return@mapNotNull null
+                podcast to episode
+            }
+
+    /**
+     * Title/author search across podcasts plus episode-title search, used by
+     * Android Auto browse search and voice queries.
+     */
+    suspend fun search(
+        query: String,
+        maxPodcastFetches: Int = 20,
+    ): Pair<List<LibraryItemSummary>, List<Pair<LibraryItemExpanded, PodcastEpisode>>> {
+        val needle = query.trim().lowercase()
+        if (needle.isBlank()) return emptyList<LibraryItemSummary>() to emptyList()
+        val all = podcasts()
+        val podcastMatches = all.filter {
+            it.media.metadata.title.orEmpty().lowercase().contains(needle) ||
+                it.media.metadata.author.orEmpty().lowercase().contains(needle)
+        }
+        val episodeMatches = mutableListOf<Pair<LibraryItemExpanded, PodcastEpisode>>()
+        for (summary in all.take(maxPodcastFetches)) {
+            val podcast = runCatching { podcast(summary.id) }.getOrNull() ?: continue
+            podcast.media.episodes
+                .filter { it.title.orEmpty().lowercase().contains(needle) }
+                .sortedByDescending { it.publishedAt ?: 0 }
+                .take(5)
+                .forEach { episodeMatches.add(podcast to it) }
+            if (episodeMatches.size >= 25) break
+        }
+        return podcastMatches to episodeMatches
     }
 
     suspend fun updateProgress(itemId: String, episodeId: String, currentTimeSec: Double, durationSec: Double) {
