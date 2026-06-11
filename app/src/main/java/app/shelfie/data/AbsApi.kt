@@ -56,4 +56,10 @@ interface AbsApi {
         @Path("episodeId") episodeId: String,
         @Body body: ProgressUpdate,
     )
+
+    @PATCH("api/me/progress/{itemId}")
+    suspend fun updateBookProgress(
+        @Path("itemId") itemId: String,
+        @Body body: ProgressUpdate,
+    )
 }

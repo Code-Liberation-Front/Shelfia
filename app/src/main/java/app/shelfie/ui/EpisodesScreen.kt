@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -137,6 +138,27 @@ fun EpisodesScreen(
                         onBack = onBack,
                     )
                 }
+                // Audiobook/MP3 items have tracks instead of episodes.
+                if (state.episodes.isEmpty() && state.podcast.media.tracks.isNotEmpty()) {
+                    itemsIndexed(state.podcast.media.tracks) { index, track ->
+                        TrackRow(
+                            title = track.title ?: "Part ${index + 1}",
+                            durationSec = track.duration.toLong(),
+                            isCurrent = playerState.mediaId == trackMediaId(itemId, index),
+                            isPlaying = playerState.isPlaying,
+                            onClick = {
+                                controller?.let { c ->
+                                    if (playerState.mediaId == trackMediaId(itemId, index)) {
+                                        if (c.isPlaying) c.pause() else c.play()
+                                    } else {
+                                        c.playTrack(itemId, index)
+                                    }
+                                }
+                            },
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                    }
+                }
                 items(state.episodes, key = { it.episode.id }) { row ->
                     val downloadKey = app.downloads.key(itemId, row.episode.id)
                     val downloadUi = when {
@@ -211,20 +233,70 @@ private fun PodcastHeader(podcast: LibraryItemExpanded, coverUrl: String, onBack
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                podcast.media.metadata.author?.let {
+                podcast.media.metadata.displayAuthor?.let {
                     Text(
                         it,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                val countText = when {
+                    podcast.media.episodes.isNotEmpty() -> "${podcast.media.episodes.size} episodes"
+                    podcast.media.tracks.isNotEmpty() -> "${podcast.media.tracks.size} parts"
+                    else -> ""
+                }
+                if (countText.isNotBlank()) {
+                    Text(
+                        countText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackRow(
+    title: String,
+    durationSec: Long,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val duration = formatDuration(durationSec)
+            if (duration.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    "${podcast.media.episodes.size} episodes",
+                    duration,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
+        Spacer(Modifier.width(12.dp))
+        Icon(
+            if (isCurrent && isPlaying) Icons.Filled.PauseCircle else Icons.Filled.PlayCircle,
+            contentDescription = if (isCurrent && isPlaying) "Pause" else "Play",
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(36.dp),
+        )
     }
 }
 
@@ -257,7 +329,10 @@ private fun EpisodeRow(
             )
             Spacer(Modifier.height(4.dp))
             val durationSec = (episode.audioTrack?.duration ?: episode.audioFile?.duration ?: 0.0).toLong()
-            val meta = listOf(formatDate(episode.publishedAt), formatDuration(durationSec))
+            val meta = listOf(
+                formatEpisodeDate(episode.publishedAt, episode.pubDate),
+                formatDuration(durationSec),
+            )
                 .filter { it.isNotBlank() }
                 .joinToString(" • ")
             Text(

@@ -22,15 +22,18 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -63,20 +66,24 @@ private sealed interface LatestUi {
     ) : LatestUi
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LatestScreen(
     app: ShelfieApp,
     controller: MediaController?,
     playerState: PlayerUiState,
 ) {
-    val ui by produceState<LatestUi>(initialValue = LatestUi.Loading) {
+    var refreshKey by remember { mutableIntStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    val ui by produceState<LatestUi>(initialValue = LatestUi.Loading, refreshKey) {
+        val force = refreshKey > 0
         value = withContext(Dispatchers.IO) {
             try {
                 if (!app.repository.ensureConfigured()) {
                     LatestUi.Error("Not logged in")
                 } else {
-                    val episodes = app.repository.latestEpisodes()
-                    val titles = app.repository.podcasts()
+                    val episodes = app.repository.latestEpisodes(forceRefresh = force)
+                    val titles = app.repository.podcasts(forceRefresh = force)
                         .associate { it.id to (it.media.metadata.title ?: "") }
                     val progress = episodes.associate { episode ->
                         val saved = runCatching {
@@ -93,8 +100,28 @@ fun LatestScreen(
                 LatestUi.Error(e.message ?: "Failed to load latest episodes")
             }
         }
+        isRefreshing = false
     }
 
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            isRefreshing = true
+            refreshKey++
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        LatestContent(app, controller, playerState, ui)
+    }
+}
+
+@Composable
+private fun LatestContent(
+    app: ShelfieApp,
+    controller: MediaController?,
+    playerState: PlayerUiState,
+    ui: LatestUi,
+) {
     when (val state = ui) {
         is LatestUi.Loading -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -226,7 +253,11 @@ private fun LatestEpisodeRow(
                 overflow = TextOverflow.Ellipsis,
             )
             val durationSec = (episode.audioTrack?.duration ?: episode.audioFile?.duration ?: 0.0).toLong()
-            val meta = listOf(podcastTitle, formatDate(episode.publishedAt), formatDuration(durationSec))
+            val meta = listOf(
+                podcastTitle,
+                formatEpisodeDate(episode.publishedAt, episode.pubDate),
+                formatDuration(durationSec),
+            )
                 .filter { it.isNotBlank() }
                 .joinToString(" • ")
             Text(

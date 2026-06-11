@@ -77,15 +77,15 @@ fun SettingsScreen(app: ShelfieApp, onOpenDownloads: () -> Unit, onBack: () -> U
             val libraries by produceState<List<Library>?>(initialValue = null) {
                 value = withContext(Dispatchers.IO) {
                     runCatching {
-                        if (app.repository.ensureConfigured()) app.repository.podcastLibraries() else null
+                        if (app.repository.ensureConfigured()) app.repository.libraries() else null
                     }.getOrNull()
                 }
             }
             val available = libraries
             when {
-                available == null -> SettingsLine("Podcast libraries", "Loading…")
+                available == null -> SettingsLine("Libraries", "Loading…")
 
-                available.isEmpty() -> SettingsLine("Podcast libraries", "None found")
+                available.isEmpty() -> SettingsLine("Libraries", "None found")
 
                 else -> {
                     val currentId = credentials?.libraryId
@@ -103,11 +103,18 @@ fun SettingsScreen(app: ShelfieApp, onOpenDownloads: () -> Unit, onBack: () -> U
                                 }
                                 .padding(vertical = 8.dp),
                         ) {
-                            Text(
-                                library.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(library.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    when (library.mediaType) {
+                                        "podcast" -> "Podcasts"
+                                        "book" -> "Audiobooks"
+                                        else -> library.mediaType.replaceFirstChar { it.uppercase() }
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             if (library.id == currentId) {
                                 Icon(
                                     Icons.Filled.Check,

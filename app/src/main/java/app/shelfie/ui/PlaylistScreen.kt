@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -65,6 +67,7 @@ import kotlinx.coroutines.withContext
 
 private const val DOWNLOADED_PLAYLIST_ID = "__downloaded__"
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistScreen(
     app: ShelfieApp,
@@ -76,6 +79,15 @@ fun PlaylistScreen(
     var selectedId by rememberSaveable { mutableStateOf(DOWNLOADED_PLAYLIST_ID) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var addingToPlaylist by remember { mutableStateOf<String?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    // Playlists are local state; refresh is a quick visual confirmation.
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            delay(500)
+            isRefreshing = false
+        }
+    }
 
     // Fall back to the Downloaded playlist if the selected one was deleted.
     LaunchedEffect(playlists, selectedId) {
@@ -104,7 +116,12 @@ fun PlaylistScreen(
         selectedPlaylist?.entries ?: emptyList()
     }
 
-    Column(Modifier.fillMaxSize()) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { isRefreshing = true },
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(Modifier.fillMaxSize()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -200,6 +217,7 @@ fun PlaylistScreen(
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
             }
+        }
         }
     }
 

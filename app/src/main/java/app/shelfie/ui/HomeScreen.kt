@@ -22,7 +22,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,9 +76,9 @@ fun HomeScreen(
                 HomeUi.Error(e.message ?: "Failed to load home")
             }
         }
-    }
-    LaunchedEffect(ui) {
-        if (ui !is HomeUi.Loading) isRefreshing = false
+        // Reset here rather than observing ui: an identical refresh result would
+        // not change state and would leave the spinner stuck.
+        isRefreshing = false
     }
 
     PullToRefreshBox(

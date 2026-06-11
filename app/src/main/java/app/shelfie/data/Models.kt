@@ -91,13 +91,29 @@ data class LibraryItemExpanded(
 data class PodcastMedia(
     val metadata: PodcastMetadata = PodcastMetadata(),
     val episodes: List<PodcastEpisode> = emptyList(),
+    // Audiobook/MP3 library items expose audio tracks instead of episodes.
+    val tracks: List<BookTrack> = emptyList(),
+    val duration: Double = 0.0,
 )
 
 @Serializable
 data class PodcastMetadata(
     val title: String? = null,
     val author: String? = null,
+    // Book metadata uses authorName instead of author.
+    val authorName: String? = null,
     val description: String? = null,
+) {
+    val displayAuthor: String? get() = author ?: authorName
+}
+
+@Serializable
+data class BookTrack(
+    val index: Int = 0,
+    val startOffset: Double = 0.0,
+    val duration: Double = 0.0,
+    val title: String? = null,
+    val contentUrl: String? = null,
 )
 
 @Serializable
@@ -108,6 +124,7 @@ data class PodcastEpisode(
     val subtitle: String? = null,
     val description: String? = null,
     val publishedAt: Long? = null,
+    val pubDate: String? = null,
     val season: String? = null,
     val episode: String? = null,
     val audioFile: AudioFile? = null,

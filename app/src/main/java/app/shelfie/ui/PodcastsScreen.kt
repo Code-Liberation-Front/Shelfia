@@ -15,8 +15,10 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,11 +44,12 @@ private sealed interface PodcastsUi {
     data class Ready(val podcasts: List<LibraryItemSummary>) : PodcastsUi
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PodcastsScreen(app: ShelfieApp, onOpenPodcast: (String) -> Unit) {
     var refreshKey by remember { mutableIntStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
     val ui by produceState<PodcastsUi>(initialValue = PodcastsUi.Loading, refreshKey) {
-        value = PodcastsUi.Loading
         value = withContext(Dispatchers.IO) {
             try {
                 if (!app.repository.ensureConfigured()) {
@@ -58,8 +61,28 @@ fun PodcastsScreen(app: ShelfieApp, onOpenPodcast: (String) -> Unit) {
                 PodcastsUi.Error(e.message ?: "Failed to load podcasts")
             }
         }
+        isRefreshing = false
     }
 
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            isRefreshing = true
+            refreshKey++
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        PodcastsContent(app, onOpenPodcast, ui, onRetry = { refreshKey++ })
+    }
+}
+
+@Composable
+private fun PodcastsContent(
+    app: ShelfieApp,
+    onOpenPodcast: (String) -> Unit,
+    ui: PodcastsUi,
+    onRetry: () -> Unit,
+) {
     when (val state = ui) {
         is PodcastsUi.Loading -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -74,7 +97,7 @@ fun PodcastsScreen(app: ShelfieApp, onOpenPodcast: (String) -> Unit) {
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(state.message, color = MaterialTheme.colorScheme.error)
-                Button(onClick = { refreshKey++ }, modifier = Modifier.padding(top = 16.dp)) {
+                Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
                     Text("Retry")
                 }
             }

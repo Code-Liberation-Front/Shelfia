@@ -35,6 +35,16 @@ fun formatDate(epochMs: Long?): String {
     return SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(epochMs))
 }
 
+/** Episode publish date with a fallback to the RSS pubDate string. */
+fun formatEpisodeDate(publishedAt: Long?, pubDate: String?): String {
+    formatDate(publishedAt).takeIf { it.isNotBlank() }?.let { return it }
+    if (pubDate.isNullOrBlank()) return ""
+    return runCatching {
+        SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US).parse(pubDate)
+            ?.let { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(it) }
+    }.getOrNull() ?: pubDate
+}
+
 fun stripHtml(html: String?): String =
     html.orEmpty()
         .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
