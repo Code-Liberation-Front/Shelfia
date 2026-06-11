@@ -2,6 +2,7 @@ package app.shelfie.download
 
 import android.content.Context
 import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import app.shelfie.data.AbsRepository
 import app.shelfie.data.LibraryItemExpanded
 import app.shelfie.data.PodcastEpisode
@@ -25,6 +26,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
@@ -36,6 +39,8 @@ data class DownloadedEpisode(
     val fileName: String,
     val sizeBytes: Long,
     val downloadedAt: Long,
+    /** Document URI when stored in a user-chosen folder (SAF); null for app storage. */
+    val uri: String? = null,
 )
 
 data class ActiveDownload(
@@ -51,9 +56,10 @@ data class ActiveDownload(
 }
 
 /**
- * Downloads episodes to app-private storage and tracks both in-flight progress
- * (bytes, total, speed) and the completed-download index. Completed episodes are
- * played from disk, which also works with no network connection.
+ * Downloads episodes to app-private storage (internal or shared) or a
+ * user-chosen folder, tracking in-flight progress (bytes, total, speed) and
+ * the completed-download index. Completed episodes play from disk, including
+ * fully offline.
  */
 class DownloadCenter(
     private val context: Context,
@@ -64,30 +70,20 @@ class DownloadCenter(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val internalDir = File(context.filesDir, "episodes").apply { mkdirs() }
     private val indexFile = File(context.filesDir, "downloads_index.json")
-
-    @Volatile
-    private var useExternal = false
-
-    init {
-        scope.launch {
-            settings.downloadLocation.collect { useExternal = it == "external" }
-        }
-    }
-
-    private fun externalDir(): File? =
-        context.getExternalFilesDir("episodes")?.apply { mkdirs() }
-
-    /** Directory new downloads are written to, per the user's setting. */
-    fun activeDir(): File =
-        if (useExternal) externalDir() ?: internalDir else internalDir
-
-    /** Existing downloads may live in either location (the setting can change). */
-    private fun findFile(fileName: String): File? =
-        listOfNotNull(File(internalDir, fileName), externalDir()?.let { File(it, fileName) })
-            .firstOrNull { it.exists() }
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient()
     private val jobs = ConcurrentHashMap<String, Job>()
+
+    @Volatile
+    private var locationMode = "internal"
+
+    @Volatile
+    private var customTreeUri: String? = null
+
+    init {
+        scope.launch { settings.downloadLocation.collect { locationMode = it } }
+        scope.launch { settings.downloadTreeUri.collect { customTreeUri = it.ifBlank { null } } }
+    }
 
     private val _completed = MutableStateFlow(loadIndex())
     val completed: StateFlow<List<DownloadedEpisode>> = _completed.asStateFlow()
@@ -98,12 +94,33 @@ class DownloadCenter(
     fun key(itemId: String, episodeId: String): String = "$itemId:$episodeId"
 
     fun isDownloaded(itemId: String, episodeId: String): Boolean =
-        _completed.value.any { it.itemId == itemId && it.episodeId == episodeId }
+        entry(itemId, episodeId) != null
 
-    /** file:// URI of a completed download, or null if not downloaded (or file missing). */
+    fun entry(itemId: String, episodeId: String): DownloadedEpisode? =
+        _completed.value.firstOrNull { it.itemId == itemId && it.episodeId == episodeId }
+
+    private fun externalDir(): File? =
+        context.getExternalFilesDir("episodes")?.apply { mkdirs() }
+
+    /** Directory new app-storage downloads are written to, per the user's setting. */
+    private fun activeDir(): File =
+        if (locationMode == "external") externalDir() ?: internalDir else internalDir
+
+    /** Existing downloads may live in either app directory (the setting can change). */
+    private fun findFile(fileName: String): File? =
+        listOfNotNull(File(internalDir, fileName), externalDir()?.let { File(it, fileName) })
+            .firstOrNull { it.exists() }
+
+    /** Playable URI of a completed download, or null if not downloaded (or missing). */
     fun localUri(itemId: String, episodeId: String): Uri? {
-        val entry = _completed.value.firstOrNull { it.itemId == itemId && it.episodeId == episodeId }
-            ?: return null
+        val entry = entry(itemId, episodeId) ?: return null
+        entry.uri?.let { stored ->
+            val uri = Uri.parse(stored)
+            val exists = runCatching {
+                DocumentFile.fromSingleUri(context, uri)?.exists() == true
+            }.getOrDefault(false)
+            return if (exists) uri else null
+        }
         return findFile(entry.fileName)?.let(Uri::fromFile)
     }
 
@@ -115,10 +132,10 @@ class DownloadCenter(
         val url = repo.streamUrl(podcast.id, episode) ?: return
         val title = episode.title ?: "Episode"
         val podcastTitle = podcast.media.metadata.title ?: ""
-        val dir = activeDir()
         val safeName = key.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val tmp = File(dir, "$safeName.part")
-        val final = File(dir, "$safeName.audio")
+        val fileName = "$safeName.audio"
+        val treeUri = if (locationMode == "custom") customTreeUri else null
+        val tmp = File(activeDir(), "$safeName.part")
 
         _active.update { it + (key to ActiveDownload(key, title, 0, 0, 0)) }
         val job = scope.launch {
@@ -127,42 +144,53 @@ class DownloadCenter(
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                     val body = response.body ?: throw IOException("Empty response")
                     val total = body.contentLength()
-                    var bytes = 0L
-                    var lastBytes = 0L
-                    var lastTime = System.currentTimeMillis()
-                    body.byteStream().use { input ->
-                        tmp.outputStream().use { output ->
-                            val buffer = ByteArray(64 * 1024)
-                            while (true) {
-                                val read = input.read(buffer)
-                                if (read == -1) break
-                                output.write(buffer, 0, read)
-                                bytes += read
-                                val now = System.currentTimeMillis()
-                                if (now - lastTime >= 500) {
-                                    val speed = (bytes - lastBytes) * 1000 / (now - lastTime)
-                                    lastBytes = bytes
-                                    lastTime = now
-                                    _active.update {
-                                        it + (key to ActiveDownload(key, title, bytes, total, speed))
-                                    }
-                                }
+                    if (treeUri != null) {
+                        val tree = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
+                            ?: throw IOException("Download folder is unavailable")
+                        tree.findFile(fileName)?.delete()
+                        val doc = tree.createFile("audio/mpeg", fileName)
+                            ?: throw IOException("Could not create a file in the download folder")
+                        try {
+                            val output = context.contentResolver.openOutputStream(doc.uri)
+                                ?: throw IOException("Could not open the download folder for writing")
+                            val bytes = body.byteStream().use { input ->
+                                output.use { copyWithProgress(input, it, total, key, title) }
                             }
+                            addToIndex(
+                                DownloadedEpisode(
+                                    itemId = podcast.id,
+                                    episodeId = episode.id,
+                                    title = title,
+                                    podcastTitle = podcastTitle,
+                                    fileName = doc.name ?: fileName,
+                                    sizeBytes = bytes,
+                                    downloadedAt = System.currentTimeMillis(),
+                                    uri = doc.uri.toString(),
+                                ),
+                            )
+                        } catch (e: Exception) {
+                            runCatching { doc.delete() }
+                            throw e
                         }
+                    } else {
+                        val final = File(activeDir(), fileName)
+                        body.byteStream().use { input ->
+                            tmp.outputStream().use { copyWithProgress(input, it, total, key, title) }
+                        }
+                        if (!tmp.renameTo(final)) throw IOException("Could not move download into place")
+                        addToIndex(
+                            DownloadedEpisode(
+                                itemId = podcast.id,
+                                episodeId = episode.id,
+                                title = title,
+                                podcastTitle = podcastTitle,
+                                fileName = final.name,
+                                sizeBytes = final.length(),
+                                downloadedAt = System.currentTimeMillis(),
+                            ),
+                        )
                     }
                 }
-                if (!tmp.renameTo(final)) throw IOException("Could not move download into place")
-                addToIndex(
-                    DownloadedEpisode(
-                        itemId = podcast.id,
-                        episodeId = episode.id,
-                        title = title,
-                        podcastTitle = podcastTitle,
-                        fileName = final.name,
-                        sizeBytes = final.length(),
-                        downloadedAt = System.currentTimeMillis(),
-                    ),
-                )
                 _active.update { it - key }
             } catch (e: CancellationException) {
                 tmp.delete()
@@ -181,12 +209,43 @@ class DownloadCenter(
         jobs[key] = job
     }
 
+    private fun copyWithProgress(
+        input: InputStream,
+        output: OutputStream,
+        totalBytes: Long,
+        key: String,
+        title: String,
+    ): Long {
+        var bytes = 0L
+        var lastBytes = 0L
+        var lastTime = System.currentTimeMillis()
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read == -1) break
+            output.write(buffer, 0, read)
+            bytes += read
+            val now = System.currentTimeMillis()
+            if (now - lastTime >= 500) {
+                val speed = (bytes - lastBytes) * 1000 / (now - lastTime)
+                lastBytes = bytes
+                lastTime = now
+                _active.update {
+                    it + (key to ActiveDownload(key, title, bytes, totalBytes, speed))
+                }
+            }
+        }
+        return bytes
+    }
+
     fun cancel(key: String) {
         jobs[key]?.cancel()
     }
 
     fun delete(entry: DownloadedEpisode) {
-        findFile(entry.fileName)?.delete()
+        entry.uri?.let { stored ->
+            runCatching { DocumentFile.fromSingleUri(context, Uri.parse(stored))?.delete() }
+        } ?: findFile(entry.fileName)?.delete()
         val updated = _completed.value.filterNot {
             it.itemId == entry.itemId && it.episodeId == entry.episodeId
         }

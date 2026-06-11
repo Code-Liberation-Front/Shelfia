@@ -539,7 +539,18 @@ class PlaybackService : MediaLibraryService() {
         if (parts.size != 3 || !repo.ensureConfigured()) {
             return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
         }
-        val podcast = repo.podcast(parts[1])
+        val podcast = try {
+            repo.podcast(parts[1])
+        } catch (e: Exception) {
+            // Offline with no cached metadata: fall back to the downloaded copy.
+            val downloaded = downloadedEpisodeItem(parts[1], parts[2])
+                ?: return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+            var position = startPositionMs
+            if (position == C.TIME_UNSET) {
+                position = savedPositionMs(mediaId)
+            }
+            return MediaSession.MediaItemsWithStartPosition(listOf(downloaded), 0, position)
+        }
         val autoPlay = runCatching { app.settings.autoPlayEnabled() }.getOrDefault(true)
         val episodes = if (autoPlay) {
             buildAutoPlayQueue(podcast, parts[2])
@@ -664,15 +675,45 @@ class PlaybackService : MediaLibraryService() {
         return builder.build()
     }
 
+    /**
+     * Builds a playable item for a downloaded episode straight from the download
+     * index, so offline playback never depends on the API cache (which can be
+     * cleared by library switches or missing on some devices).
+     */
+    private fun downloadedEpisodeItem(itemId: String, episodeId: String): MediaItem? {
+        val localUri = app.downloads.localUri(itemId, episodeId) ?: return null
+        val entry = app.downloads.entry(itemId, episodeId) ?: return null
+        val metadata = MediaMetadata.Builder()
+            .setTitle(entry.title)
+            .setArtist(entry.podcastTitle)
+            .setAlbumTitle(entry.podcastTitle)
+            .setArtworkUri(Uri.parse(repo.coverUrl(itemId)))
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
+            .build()
+        return MediaItem.Builder()
+            .setMediaId("$EPISODE_PREFIX$itemId:$episodeId")
+            .setMediaMetadata(metadata)
+            .setUri(localUri)
+            .setMimeType("audio/mpeg")
+            .build()
+    }
+
     /** Turns an "episode:{itemId}:{episodeId}" media id into a fully playable MediaItem. */
     private suspend fun resolveEpisode(mediaId: String): MediaItem? {
         if (!mediaId.startsWith(EPISODE_PREFIX)) return null
         val parts = mediaId.split(":", limit = 3)
         if (parts.size != 3) return null
-        if (!repo.ensureConfigured()) return null
-        val podcast = repo.podcast(parts[1])
-        val episode = podcast.media.episodes.firstOrNull { it.id == parts[2] } ?: return null
-        return episodeItem(podcast, episode, withUri = true)
+        return try {
+            if (!repo.ensureConfigured()) return downloadedEpisodeItem(parts[1], parts[2])
+            val podcast = repo.podcast(parts[1])
+            val episode = podcast.media.episodes.firstOrNull { it.id == parts[2] }
+                ?: return downloadedEpisodeItem(parts[1], parts[2])
+            episodeItem(podcast, episode, withUri = true)
+        } catch (e: Exception) {
+            downloadedEpisodeItem(parts[1], parts[2]) ?: throw e
+        }
     }
 
     private fun LibraryItemSummary.toBrowsableItem(): MediaItem =

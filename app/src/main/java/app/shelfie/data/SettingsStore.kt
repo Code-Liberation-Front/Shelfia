@@ -37,14 +37,26 @@ class SettingsStore(private val context: Context) {
         val lastPlayedPositionMs = longPreferencesKey("last_played_position_ms")
         val autoPlay = booleanPreferencesKey("auto_play")
         val downloadLocation = stringPreferencesKey("download_location")
+        val downloadTreeUri = stringPreferencesKey("download_tree_uri")
     }
 
-    /** Where new downloads are stored: "internal" (default) or "external" app storage. */
+    /** Where new downloads are stored: "internal" (default), "external", or "custom". */
     val downloadLocation: Flow<String> =
         context.dataStore.data.map { it[Keys.downloadLocation] ?: "internal" }
 
+    /** SAF tree URI for the "custom" download location. */
+    val downloadTreeUri: Flow<String> =
+        context.dataStore.data.map { it[Keys.downloadTreeUri] ?: "" }
+
     suspend fun setDownloadLocation(value: String) {
         context.dataStore.edit { it[Keys.downloadLocation] = value }
+    }
+
+    suspend fun setCustomDownloadTree(treeUri: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.downloadTreeUri] = treeUri
+            prefs[Keys.downloadLocation] = "custom"
+        }
     }
 
     /** Whether playback should continue to the next episode automatically. Defaults to on. */

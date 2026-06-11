@@ -183,9 +183,24 @@ fun SettingsScreen(app: ShelfieApp, onOpenDownloads: () -> Unit, onBack: () -> U
 
         SettingsCard(title = "Downloads") {
             val location by app.settings.downloadLocation.collectAsState(initial = "internal")
+            val treeUri by app.settings.downloadTreeUri.collectAsState(initial = "")
             val context = LocalContext.current
             val externalAvailable = remember { app.getExternalFilesDir("episodes") != null }
             var locationMenuOpen by remember { mutableStateOf(false) }
+            // System folder picker for a user-chosen download path.
+            val folderPicker = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocumentTree(),
+            ) { uri ->
+                if (uri != null) {
+                    runCatching {
+                        context.contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                        )
+                    }
+                    scope.launch { app.settings.setCustomDownloadTree(uri.toString()) }
+                }
+            }
             // On Android 12 and below ask for the legacy storage permissions before
             // switching to shared storage; newer versions need none for app folders.
             val storagePermissionLauncher = rememberLauncherForActivityResult(
@@ -215,7 +230,11 @@ fun SettingsScreen(app: ShelfieApp, onOpenDownloads: () -> Unit, onBack: () -> U
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        if (location == "external") "Shared app storage" else "Internal app storage",
+                        when (location) {
+                            "external" -> "Shared app storage"
+                            "custom" -> "Custom folder"
+                            else -> "Internal app storage"
+                        },
                         modifier = Modifier.weight(1f),
                     )
                     Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose download location")
@@ -268,6 +287,31 @@ fun SettingsScreen(app: ShelfieApp, onOpenDownloads: () -> Unit, onBack: () -> U
                             },
                         )
                     }
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text("Custom folder…")
+                                Text(
+                                    if (location == "custom" && treeUri.isNotBlank()) {
+                                        Uri.parse(treeUri).lastPathSegment ?: "Chosen folder"
+                                    } else {
+                                        "Pick any folder on this device"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                        trailingIcon = if (location == "custom") {
+                            { Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary) }
+                        } else {
+                            null
+                        },
+                        onClick = {
+                            locationMenuOpen = false
+                            folderPicker.launch(null)
+                        },
+                    )
                 }
             }
             Spacer(Modifier.height(6.dp))
