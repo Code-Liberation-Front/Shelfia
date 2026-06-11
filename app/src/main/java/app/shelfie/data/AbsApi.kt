@@ -8,8 +8,18 @@ import retrofit2.http.Query
 
 interface AbsApi {
 
+    @GET("status")
+    suspend fun status(): ServerStatus
+
     @retrofit2.http.POST("login")
     suspend fun login(@Body body: LoginRequest): LoginResponse
+
+    @GET("auth/openid/callback")
+    suspend fun oidcCallback(
+        @Query("code") code: String,
+        @Query("state") state: String,
+        @Query("code_verifier") codeVerifier: String,
+    ): LoginResponse
 
     @GET("api/me")
     suspend fun me(): User

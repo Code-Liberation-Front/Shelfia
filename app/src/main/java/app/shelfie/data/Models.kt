@@ -3,6 +3,23 @@ package app.shelfie.data
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class ServerStatus(
+    val isInit: Boolean = true,
+    val authMethods: List<String> = emptyList(),
+    val authFormData: AuthFormData? = null,
+) {
+    val supportsLocal: Boolean get() = authMethods.isEmpty() || authMethods.contains("local")
+    val supportsOpenId: Boolean get() = authMethods.contains("openid")
+}
+
+@Serializable
+data class AuthFormData(
+    val authLoginCustomMessage: String? = null,
+    val authOpenIDButtonText: String? = null,
+    val authOpenIDAutoLaunch: Boolean = false,
+)
+
+@Serializable
 data class LoginRequest(
     val username: String,
     val password: String,

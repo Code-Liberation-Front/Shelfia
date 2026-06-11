@@ -30,6 +30,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- OIDC redirect from the browser (Audiobookshelf mobile login flow) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="audiobookshelf"
+                    android:host="oauth" />
+            </intent-filter>
         </activity>
 
         <service

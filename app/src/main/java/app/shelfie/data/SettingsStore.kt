@@ -26,6 +26,8 @@ class SettingsStore(private val context: Context) {
         val token = stringPreferencesKey("token")
         val userId = stringPreferencesKey("user_id")
         val libraryId = stringPreferencesKey("library_id")
+        val pendingOidcServer = stringPreferencesKey("pending_oidc_server")
+        val pendingOidcVerifier = stringPreferencesKey("pending_oidc_verifier")
     }
 
     val credentials: Flow<Credentials> = context.dataStore.data.map { prefs ->
@@ -49,6 +51,28 @@ class SettingsStore(private val context: Context) {
 
     suspend fun saveLibraryId(libraryId: String) {
         context.dataStore.edit { prefs -> prefs[Keys.libraryId] = libraryId }
+    }
+
+    /** Stores the server + PKCE verifier while the OIDC flow round-trips through the browser. */
+    suspend fun savePendingOidc(serverUrl: String, codeVerifier: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.pendingOidcServer] = serverUrl
+            prefs[Keys.pendingOidcVerifier] = codeVerifier
+        }
+    }
+
+    suspend fun pendingOidc(): Pair<String, String>? {
+        val prefs = context.dataStore.data.first()
+        val server = prefs[Keys.pendingOidcServer] ?: return null
+        val verifier = prefs[Keys.pendingOidcVerifier] ?: return null
+        return server to verifier
+    }
+
+    suspend fun clearPendingOidc() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(Keys.pendingOidcServer)
+            prefs.remove(Keys.pendingOidcVerifier)
+        }
     }
 
     suspend fun clear() {

@@ -2,6 +2,7 @@ package app.shelfie.ui
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.navigation.compose.NavHost
@@ -30,11 +32,13 @@ import app.shelfie.playback.PlaybackService
 import app.shelfie.ui.theme.ShelfieTheme
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val controllerState = mutableStateOf<MediaController?>(null)
+    private val loginError = mutableStateOf<String?>(null)
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -46,7 +50,35 @@ class MainActivity : ComponentActivity() {
         setContent {
             ShelfieTheme {
                 val controller by controllerState
-                ShelfieRoot(app = app, controller = controller)
+                val error by loginError
+                ShelfieRoot(app = app, controller = controller, loginError = error)
+            }
+        }
+        handleOidcIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleOidcIntent(intent)
+    }
+
+    /** Finishes the OIDC login when the browser redirects back to audiobookshelf://oauth. */
+    private fun handleOidcIntent(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "audiobookshelf" || data.host != "oauth") return
+        val code = data.getQueryParameter("code")
+        val state = data.getQueryParameter("state")
+        if (code.isNullOrBlank() || state.isNullOrBlank()) {
+            loginError.value = "Sign-in was cancelled or the server returned no code."
+            return
+        }
+        loginError.value = null
+        val app = application as ShelfieApp
+        lifecycleScope.launch {
+            try {
+                app.repository.completeOidcLogin(code, state)
+            } catch (e: Exception) {
+                loginError.value = e.message ?: "OIDC sign-in failed"
             }
         }
     }
@@ -84,7 +116,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ShelfieRoot(app: ShelfieApp, controller: MediaController?) {
+fun ShelfieRoot(app: ShelfieApp, controller: MediaController?, loginError: String? = null) {
     val credentials by app.settings.credentials.collectAsState(initial = null)
     val creds = credentials
 
@@ -95,7 +127,7 @@ fun ShelfieRoot(app: ShelfieApp, controller: MediaController?) {
             }
         }
 
-        !creds.isLoggedIn -> LoginScreen(app)
+        !creds.isLoggedIn -> LoginScreen(app, externalError = loginError)
 
         else -> MainNavigation(app, controller)
     }

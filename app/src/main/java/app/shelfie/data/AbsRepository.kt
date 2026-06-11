@@ -1,10 +1,14 @@
 package app.shelfie.data
 
+import android.util.Base64
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.net.URLEncoder
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -56,6 +60,37 @@ class AbsRepository(private val settings: SettingsStore) {
         if (!creds.isLoggedIn) return false
         configure(creds.serverUrl, creds.token)
         return true
+    }
+
+    /** Fetches the server's enabled auth methods before any credentials exist. */
+    suspend fun serverStatus(serverInput: String): ServerStatus {
+        val server = normalizeServerUrl(serverInput)
+        return buildApi(server, token = null).status()
+    }
+
+    /**
+     * Begins the OIDC flow: persists a PKCE verifier for the browser round-trip and
+     * returns the authorization URL to open. Audiobookshelf redirects the browser back
+     * to audiobookshelf://oauth?code=...&state=... once the identity provider finishes.
+     */
+    suspend fun startOidcLogin(serverInput: String): String {
+        val server = normalizeServerUrl(serverInput)
+        val verifier = generateCodeVerifier()
+        settings.savePendingOidc(server, verifier)
+        val challenge = codeChallenge(verifier)
+        val redirect = URLEncoder.encode(OIDC_REDIRECT_URI, "UTF-8")
+        return "$server/auth/openid?response_type=code&client_id=Shelfie" +
+            "&redirect_uri=$redirect&code_challenge=$challenge&code_challenge_method=S256"
+    }
+
+    /** Completes the OIDC flow with the code/state delivered via the deep link. */
+    suspend fun completeOidcLogin(code: String, state: String) {
+        val (server, verifier) = settings.pendingOidc()
+            ?: throw IllegalStateException("No sign-in attempt in progress. Please start over.")
+        val response = buildApi(server, token = null).oidcCallback(code, state, verifier)
+        configure(server, response.user.token)
+        settings.saveLogin(server, response.user.token, response.user.id)
+        settings.clearPendingOidc()
     }
 
     suspend fun login(serverInput: String, username: String, password: String) {
@@ -164,6 +199,19 @@ class AbsRepository(private val settings: SettingsStore) {
     }
 
     companion object {
+        const val OIDC_REDIRECT_URI = "audiobookshelf://oauth"
+
+        private fun generateCodeVerifier(): String {
+            val bytes = ByteArray(64)
+            SecureRandom().nextBytes(bytes)
+            return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        }
+
+        private fun codeChallenge(verifier: String): String {
+            val digest = MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))
+            return Base64.encodeToString(digest, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        }
+
         fun normalizeServerUrl(input: String): String {
             var url = input.trim().trimEnd('/')
             if (url.isNotBlank() && !url.startsWith("http://") && !url.startsWith("https://")) {

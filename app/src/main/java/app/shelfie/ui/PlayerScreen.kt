@@ -18,17 +18,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -124,16 +128,53 @@ fun PlayerScreen(
         }
         Spacer(Modifier.height(24.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
+        SpeedSelector(state = state, controller = controller)
+    }
+}
+
+@Composable
+private fun SpeedSelector(state: PlayerUiState, controller: MediaController?) {
+    var menuOpen by remember { mutableStateOf(false) }
+
+    Box {
+        OutlinedButton(onClick = { menuOpen = true }) {
+            Icon(
+                Icons.Filled.Speed,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(formatSpeed(state.speed))
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
         ) {
             SPEED_OPTIONS.forEach { speed ->
-                FilterChip(
-                    selected = kotlin.math.abs(state.speed - speed) < 0.01f,
-                    onClick = { controller?.setPlaybackSpeed(speed) },
-                    label = { Text(formatSpeed(speed)) },
-                    modifier = Modifier.weight(1f),
+                val selected = kotlin.math.abs(state.speed - speed) < 0.01f
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            formatSpeed(speed),
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                    },
+                    trailingIcon = if (selected) {
+                        {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = "Selected",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        controller?.setPlaybackSpeed(speed)
+                        menuOpen = false
+                    },
                 )
             }
         }
