@@ -1,5 +1,6 @@
 package app.shelfie.ui
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -41,15 +43,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.media3.session.MediaController
 import app.shelfie.ui.theme.ShelfieSurface
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private val SPEED_OPTIONS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f)
 
@@ -59,12 +71,57 @@ fun PlayerScreen(
     controller: MediaController?,
     onBack: () -> Unit,
 ) {
+    // Swipe-down to dismiss: once the scrollable content is at the top, further
+    // downward drag translates the whole player; past a threshold (or on a fast
+    // fling) it closes like the chevron button, otherwise it springs back.
+    val offsetY = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val dismissThresholdPx = with(LocalDensity.current) { 160.dp.toPx() }
+    val dismissConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y < 0f && offsetY.value > 0f) {
+                    val target = (offsetY.value + available.y).coerceAtLeast(0f)
+                    val consumed = target - offsetY.value
+                    scope.launch { offsetY.snapTo(target) }
+                    return Offset(0f, consumed)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (source == NestedScrollSource.UserInput && available.y > 0f) {
+                    scope.launch { offsetY.snapTo(offsetY.value + available.y) }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                return if (offsetY.value > dismissThresholdPx || available.y > 2500f) {
+                    onBack()
+                    available
+                } else {
+                    offsetY.animateTo(0f)
+                    Velocity.Zero
+                }
+            }
+        }
+    }
+
     // This screen renders as an overlay outside the Scaffold, so it needs its own
     // Surface: without it LocalContentColor defaults to black and all text goes dark.
     Surface(
         color = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .offset { IntOffset(0, offsetY.value.roundToInt()) }
+            .nestedScroll(dismissConnection),
     ) {
         Column(
             modifier = Modifier
