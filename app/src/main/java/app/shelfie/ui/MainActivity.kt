@@ -6,8 +6,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -25,7 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.NewReleases
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
@@ -62,7 +62,8 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+// AppCompatActivity (a FragmentActivity) is required for the Cast chooser dialog.
+class MainActivity : AppCompatActivity() {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val controllerState = mutableStateOf<MediaController?>(null)
@@ -165,7 +166,7 @@ private data class BottomTab(val route: String, val label: String, val icon: Ima
 
 private val BOTTOM_TABS = listOf(
     BottomTab("home", "Home", Icons.Filled.Home),
-    BottomTab("latest", "Latest", Icons.Filled.NewReleases),
+    BottomTab("latest", "Latest", Icons.Filled.Schedule),
     BottomTab("library", "Library", Icons.Filled.GridView),
 )
 

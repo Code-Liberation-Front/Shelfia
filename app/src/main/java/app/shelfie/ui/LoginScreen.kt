@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -76,7 +77,11 @@ fun LoginScreen(app: ShelfieApp, externalError: String? = null) {
                 label = { Text("Server URL") },
                 placeholder = { Text("https://abs.example.com") },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Uri,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(24.dp))

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,12 +39,15 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+data class EpisodeProgressUi(val fraction: Float, val isFinished: Boolean)
+
 private sealed interface LatestUi {
     data object Loading : LatestUi
     data class Error(val message: String) : LatestUi
     data class Ready(
         val episodes: List<PodcastEpisode>,
         val podcastTitles: Map<String, String>,
+        val progress: Map<String, EpisodeProgressUi>,
     ) : LatestUi
 }
 
@@ -61,7 +66,16 @@ fun LatestScreen(
                     val episodes = app.repository.latestEpisodes()
                     val titles = app.repository.podcasts()
                         .associate { it.id to (it.media.metadata.title ?: "") }
-                    LatestUi.Ready(episodes, titles)
+                    val progress = episodes.associate { episode ->
+                        val saved = runCatching {
+                            app.repository.progress(episode.libraryItemId, episode.id)
+                        }.getOrNull()
+                        episode.id to EpisodeProgressUi(
+                            fraction = (saved?.progress ?: 0.0).toFloat().coerceIn(0f, 1f),
+                            isFinished = saved?.isFinished == true,
+                        )
+                    }
+                    LatestUi.Ready(episodes, titles, progress)
                 }
             } catch (e: Exception) {
                 LatestUi.Error(e.message ?: "Failed to load latest episodes")
@@ -87,6 +101,7 @@ fun LatestScreen(
                 items(state.episodes, key = { it.id }) { episode ->
                     LatestEpisodeRow(
                         episode = episode,
+                        progress = state.progress[episode.id],
                         podcastTitle = state.podcastTitles[episode.libraryItemId] ?: "",
                         coverUrl = app.repository.coverUrl(episode.libraryItemId),
                         isCurrent = playerState.mediaId == episodeMediaId(episode.libraryItemId, episode.id),
@@ -111,6 +126,7 @@ fun LatestScreen(
 @Composable
 private fun LatestEpisodeRow(
     episode: PodcastEpisode,
+    progress: EpisodeProgressUi?,
     podcastTitle: String,
     coverUrl: String,
     isCurrent: Boolean,
@@ -155,6 +171,15 @@ private fun LatestEpisodeRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (progress != null && progress.fraction > 0.01f && !progress.isFinished) {
+                LinearProgressIndicator(
+                    progress = { progress.fraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .height(3.dp),
+                )
+            }
         }
         Spacer(Modifier.width(8.dp))
         Icon(

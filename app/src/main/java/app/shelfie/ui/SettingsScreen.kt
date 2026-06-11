@@ -1,5 +1,7 @@
 package app.shelfie.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +27,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.shelfie.ShelfieApp
 import app.shelfie.data.ListeningStats
@@ -77,6 +80,23 @@ fun SettingsScreen(app: ShelfieApp, onBack: () -> Unit) {
             )
         }
 
+        val context = LocalContext.current
+        OutlinedButton(
+            onClick = {
+                val url = credentials?.serverUrl
+                if (!url.isNullOrBlank()) {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text("Open Audiobookshelf in browser")
+        }
+
         OutlinedButton(
             onClick = {
                 scope.launch {
@@ -85,7 +105,7 @@ fun SettingsScreen(app: ShelfieApp, onBack: () -> Unit) {
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             Text("Switch server / account")
         }
