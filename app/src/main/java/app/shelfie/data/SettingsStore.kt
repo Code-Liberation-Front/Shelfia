@@ -32,6 +32,7 @@ class SettingsStore(private val context: Context) {
         val libraryId = stringPreferencesKey("library_id")
         val pendingOidcServer = stringPreferencesKey("pending_oidc_server")
         val pendingOidcVerifier = stringPreferencesKey("pending_oidc_verifier")
+        val pendingOidcCookies = stringPreferencesKey("pending_oidc_cookies")
         val lastPlayedMediaId = stringPreferencesKey("last_played_media_id")
         val lastPlayedPositionMs = longPreferencesKey("last_played_position_ms")
         val autoPlay = booleanPreferencesKey("auto_play")
@@ -71,19 +72,20 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { prefs -> prefs[Keys.libraryId] = libraryId }
     }
 
-    /** Stores the server + PKCE verifier while the OIDC flow round-trips through the browser. */
-    suspend fun savePendingOidc(serverUrl: String, codeVerifier: String) {
+    /** Stores the server, PKCE verifier, and state cookies while the OIDC flow round-trips through the browser. */
+    suspend fun savePendingOidc(serverUrl: String, codeVerifier: String, cookies: String) {
         context.dataStore.edit { prefs ->
             prefs[Keys.pendingOidcServer] = serverUrl
             prefs[Keys.pendingOidcVerifier] = codeVerifier
+            prefs[Keys.pendingOidcCookies] = cookies
         }
     }
 
-    suspend fun pendingOidc(): Pair<String, String>? {
+    suspend fun pendingOidc(): Triple<String, String, String>? {
         val prefs = context.dataStore.data.first()
         val server = prefs[Keys.pendingOidcServer] ?: return null
         val verifier = prefs[Keys.pendingOidcVerifier] ?: return null
-        return server to verifier
+        return Triple(server, verifier, prefs[Keys.pendingOidcCookies] ?: "")
     }
 
     /** Remembers the most recent episode for Android Auto playback resumption. */
@@ -104,6 +106,7 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs.remove(Keys.pendingOidcServer)
             prefs.remove(Keys.pendingOidcVerifier)
+            prefs.remove(Keys.pendingOidcCookies)
         }
     }
 

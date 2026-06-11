@@ -1,11 +1,14 @@
 package app.shelfie.data
 
 import android.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.File
@@ -80,25 +83,54 @@ class AbsRepository(
     }
 
     /**
-     * Begins the OIDC flow: persists a PKCE verifier for the browser round-trip and
-     * returns the authorization URL to open. Audiobookshelf redirects the browser back
-     * to audiobookshelf://oauth?code=...&state=... once the identity provider finishes.
+     * Begins the OIDC flow following Audiobookshelf's mobile contract: the app
+     * itself requests /auth/openid (without following the redirect), captures the
+     * state cookies plus the identity-provider URL, and returns that URL to open
+     * in the browser. The cookies must be replayed on /auth/openid/callback.
      */
     suspend fun startOidcLogin(serverInput: String): String {
         val server = normalizeServerUrl(serverInput)
         val verifier = generateCodeVerifier()
-        settings.savePendingOidc(server, verifier)
         val challenge = codeChallenge(verifier)
         val redirect = URLEncoder.encode(OIDC_REDIRECT_URI, "UTF-8")
-        return "$server/auth/openid?response_type=code&client_id=Shelfie" +
+        val authUrl = "$server/auth/openid?response_type=code&client_id=Shelfie" +
             "&redirect_uri=$redirect&code_challenge=$challenge&code_challenge_method=S256"
+        val (idpUrl, cookies) = withContext(Dispatchers.IO) { fetchOidcRedirect(server, authUrl) }
+        settings.savePendingOidc(server, verifier, cookies)
+        return idpUrl
+    }
+
+    private fun fetchOidcRedirect(server: String, authUrl: String): Pair<String, String> {
+        val client = OkHttpClient.Builder().followRedirects(false).build()
+        client.newCall(Request.Builder().url(authUrl).build()).execute().use { response ->
+            if (response.code !in 300..399) {
+                val body = runCatching { response.body?.string() }.getOrNull()
+                    ?.take(200)?.trim().orEmpty()
+                val detail = if (body.isNotBlank()) ": $body" else ""
+                throw IllegalStateException(
+                    "Server did not start the sign-in flow (HTTP ${response.code}$detail)",
+                )
+            }
+            val location = response.header("Location")
+                ?: throw IllegalStateException("Server did not return a sign-in redirect")
+            val resolved = when {
+                location.startsWith("http://") || location.startsWith("https://") -> location
+                location.startsWith("/") -> "$server$location"
+                else -> "$server/$location"
+            }
+            val cookies = response.headers("Set-Cookie")
+                .joinToString("; ") { it.substringBefore(';') }
+            return resolved to cookies
+        }
     }
 
     /** Completes the OIDC flow with the code/state delivered via the deep link. */
     suspend fun completeOidcLogin(code: String, state: String) {
-        val (server, verifier) = settings.pendingOidc()
+        val pending = settings.pendingOidc()
             ?: throw IllegalStateException("No sign-in attempt in progress. Please start over.")
-        val response = buildApi(server, token = null).oidcCallback(code, state, verifier)
+        val (server, verifier, cookies) = pending
+        val response = buildApi(server, token = null)
+            .oidcCallback(code, state, verifier, cookies.ifBlank { null })
         configure(server, response.user.token)
         settings.saveLogin(server, response.user.token, response.user.id, response.user.username)
         settings.clearPendingOidc()

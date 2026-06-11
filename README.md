@@ -44,6 +44,17 @@ Shelfie ships a Media3 `MediaLibraryService`, so it appears as a media app in An
 
 Because sideloaded apps are hidden by default, enable developer mode in the Android Auto settings on your phone and check **"Unknown sources"**, then Shelfie will show up on the car launcher.
 
+## OIDC / single sign-on setup
+
+Shelfie signs in through Audiobookshelf's mobile OAuth flow using the redirect URI `audiobookshelf://oauth`.
+
+**Getting HTTP 400 in the browser when you tap the SSO button?** The server is rejecting that redirect URI. In the Audiobookshelf web UI go to **Settings → Authentication → OpenID Connect Auth** and check **Allowed Mobile Redirect URIs**:
+
+- it must contain `audiobookshelf://oauth` (this is the server default, but it disappears if the list was ever edited for another app), **or**
+- set it to `*` to allow any mobile redirect URI.
+
+Save the setting and try again — no app changes needed. Multiple entries are supported, so you can keep URIs for other apps (e.g. the official app or ShelfPlayer) alongside Shelfie's.
+
 ## Building locally
 
 Requirements: JDK 17+ and the Android SDK (API 35).

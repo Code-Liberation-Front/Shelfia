@@ -19,6 +19,7 @@ interface AbsApi {
         @Query("code") code: String,
         @Query("state") state: String,
         @Query("code_verifier") codeVerifier: String,
+        @retrofit2.http.Header("Cookie") cookies: String? = null,
     ): LoginResponse
 
     @GET("api/me")
