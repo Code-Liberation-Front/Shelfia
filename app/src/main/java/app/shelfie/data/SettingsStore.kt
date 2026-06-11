@@ -15,6 +15,7 @@ data class Credentials(
     val serverUrl: String = "",
     val token: String = "",
     val userId: String = "",
+    val username: String = "",
     val libraryId: String = "",
 ) {
     val isLoggedIn: Boolean get() = serverUrl.isNotBlank() && token.isNotBlank()
@@ -26,6 +27,7 @@ class SettingsStore(private val context: Context) {
         val serverUrl = stringPreferencesKey("server_url")
         val token = stringPreferencesKey("token")
         val userId = stringPreferencesKey("user_id")
+        val username = stringPreferencesKey("username")
         val libraryId = stringPreferencesKey("library_id")
         val pendingOidcServer = stringPreferencesKey("pending_oidc_server")
         val pendingOidcVerifier = stringPreferencesKey("pending_oidc_verifier")
@@ -38,17 +40,19 @@ class SettingsStore(private val context: Context) {
             serverUrl = prefs[Keys.serverUrl] ?: "",
             token = prefs[Keys.token] ?: "",
             userId = prefs[Keys.userId] ?: "",
+            username = prefs[Keys.username] ?: "",
             libraryId = prefs[Keys.libraryId] ?: "",
         )
     }
 
     suspend fun snapshot(): Credentials = credentials.first()
 
-    suspend fun saveLogin(serverUrl: String, token: String, userId: String) {
+    suspend fun saveLogin(serverUrl: String, token: String, userId: String, username: String) {
         context.dataStore.edit { prefs ->
             prefs[Keys.serverUrl] = serverUrl
             prefs[Keys.token] = token
             prefs[Keys.userId] = userId
+            prefs[Keys.username] = username
         }
     }
 

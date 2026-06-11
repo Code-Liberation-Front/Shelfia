@@ -5,4 +5,10 @@
         <item name="android:statusBarColor">#FF14181C</item>
         <item name="android:navigationBarColor">#FF14181C</item>
     </style>
+
+    <!-- AppCompat-based theme required to inflate the MediaRouteButton (cast picker). -->
+    <style name="Theme.Shelfie.Cast" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">#FC7E0F</item>
+        <item name="colorAccent">#FC7E0F</item>
+    </style>
 </resources>

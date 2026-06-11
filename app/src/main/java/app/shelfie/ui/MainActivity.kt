@@ -9,24 +9,49 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.NewReleases
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import app.shelfie.R
 import app.shelfie.ShelfieApp
 import app.shelfie.playback.PlaybackService
 import app.shelfie.ui.theme.ShelfieTheme
@@ -133,35 +158,88 @@ fun ShelfieRoot(app: ShelfieApp, controller: MediaController?, loginError: Strin
     }
 }
 
+private data class BottomTab(val route: String, val label: String, val icon: ImageVector)
+
+private val BOTTOM_TABS = listOf(
+    BottomTab("home", "Home", Icons.Filled.Home),
+    BottomTab("latest", "Latest", Icons.Filled.NewReleases),
+    BottomTab("library", "Library", Icons.Filled.GridView),
+)
+
 @Composable
 fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
     val navController = rememberNavController()
     val playerState = rememberPlayerUiState(controller)
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    val onTabScreen = BOTTOM_TABS.any { it.route == currentRoute }
 
     Scaffold(
+        topBar = {
+            if (onTabScreen) {
+                ShelfieTopBar(
+                    onSearch = { navController.navigate("search") { launchSingleTop = true } },
+                    onSettings = { navController.navigate("settings") { launchSingleTop = true } },
+                )
+            }
+        },
         bottomBar = {
-            NowPlayingBar(
-                state = playerState,
-                controller = controller,
-                onExpand = {
-                    navController.navigate("player") { launchSingleTop = true }
-                },
-            )
+            Column {
+                NowPlayingBar(
+                    state = playerState,
+                    controller = controller,
+                    onExpand = {
+                        navController.navigate("player") { launchSingleTop = true }
+                    },
+                )
+                if (onTabScreen) {
+                    NavigationBar {
+                        BOTTOM_TABS.forEach { tab ->
+                            NavigationBarItem(
+                                selected = currentRoute == tab.route,
+                                onClick = {
+                                    navController.navigate(tab.route) {
+                                        popUpTo("home") { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                label = { Text(tab.label) },
+                            )
+                        }
+                    }
+                }
+            }
         },
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = "podcasts",
+            startDestination = "home",
             modifier = Modifier.padding(padding),
         ) {
-            composable("podcasts") {
+            composable("home") {
+                HomeScreen(
+                    app = app,
+                    controller = controller,
+                    onOpenPodcast = { itemId -> navController.navigate("podcast/$itemId") },
+                )
+            }
+            composable("latest") {
+                LatestScreen(
+                    app = app,
+                    controller = controller,
+                    playerState = playerState,
+                )
+            }
+            composable("library") {
                 PodcastsScreen(
                     app = app,
                     onOpenPodcast = { itemId -> navController.navigate("podcast/$itemId") },
                 )
             }
-            composable("podcast/{itemId}") { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getString("itemId").orEmpty()
+            composable("podcast/{itemId}") { entry ->
+                val itemId = entry.arguments?.getString("itemId").orEmpty()
                 EpisodesScreen(
                     app = app,
                     itemId = itemId,
@@ -177,6 +255,53 @@ fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
                     onBack = { navController.popBackStack() },
                 )
             }
+            composable("search") {
+                SearchScreen(
+                    app = app,
+                    controller = controller,
+                    onOpenPodcast = { itemId -> navController.navigate("podcast/$itemId") },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable("settings") {
+                SettingsScreen(
+                    app = app,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShelfieTopBar(onSearch: () -> Unit, onSettings: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_foreground),
+            contentDescription = "Shelfie",
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary),
+        )
+        Text(
+            "Shelfie",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 10.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onSearch) {
+            Icon(Icons.Filled.Search, contentDescription = "Search")
+        }
+        CastButton(modifier = Modifier.size(44.dp))
+        IconButton(onClick = onSettings) {
+            Icon(Icons.Filled.Settings, contentDescription = "Settings")
         }
     }
 }
