@@ -115,7 +115,13 @@ class MainActivity : AppCompatActivity() {
             try {
                 app.repository.completeOidcLogin(code, state)
             } catch (e: Exception) {
-                loginError.value = e.message ?: "OIDC sign-in failed"
+                loginError.value = if (e is retrofit2.HttpException && e.code() == 400) {
+                    "Sign-in rejected by the server (HTTP 400). Ask your Audiobookshelf admin to add " +
+                        "audiobookshelf://oauth to \"Allowed Mobile Redirect URIs\" under " +
+                        "Settings → Authentication, then try again."
+                } else {
+                    e.message ?: "OIDC sign-in failed"
+                }
             }
         }
     }
