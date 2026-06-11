@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -67,6 +68,29 @@ fun SettingsScreen(app: ShelfieApp, onOpenDownloads: () -> Unit, onBack: () -> U
         SettingsCard(title = "Account") {
             SettingsLine("User", credentials?.username?.ifBlank { "—" } ?: "—")
             SettingsLine("Server", credentials?.serverUrl?.ifBlank { "—" } ?: "—")
+        }
+
+        SettingsCard(title = "Playback") {
+            val autoPlay by app.settings.autoPlay.collectAsState(initial = true)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Auto play", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Continue to the next episode automatically",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = autoPlay,
+                    onCheckedChange = { enabled ->
+                        scope.launch { app.settings.setAutoPlay(enabled) }
+                    },
+                )
+            }
         }
 
         SettingsCard(title = "Listening stats") {

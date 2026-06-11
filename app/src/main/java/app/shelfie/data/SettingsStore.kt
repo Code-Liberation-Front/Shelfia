@@ -1,6 +1,7 @@
 package app.shelfie.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -33,6 +34,16 @@ class SettingsStore(private val context: Context) {
         val pendingOidcVerifier = stringPreferencesKey("pending_oidc_verifier")
         val lastPlayedMediaId = stringPreferencesKey("last_played_media_id")
         val lastPlayedPositionMs = longPreferencesKey("last_played_position_ms")
+        val autoPlay = booleanPreferencesKey("auto_play")
+    }
+
+    /** Whether playback should continue to the next episode automatically. Defaults to on. */
+    val autoPlay: Flow<Boolean> = context.dataStore.data.map { it[Keys.autoPlay] ?: true }
+
+    suspend fun autoPlayEnabled(): Boolean = autoPlay.first()
+
+    suspend fun setAutoPlay(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.autoPlay] = enabled }
     }
 
     val credentials: Flow<Credentials> = context.dataStore.data.map { prefs ->

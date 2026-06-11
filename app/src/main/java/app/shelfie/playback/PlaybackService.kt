@@ -436,9 +436,14 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Expands a single episode into a queue of its whole podcast (newest first),
-     * positioned at that episode, resuming from the server-side position when
-     * no explicit position was requested.
+     * Builds the queue for a selected episode, resuming from the server-side
+     * position when no explicit position was requested.
+     *
+     * Auto-play direction: picking an older episode continues forward in time
+     * (e.g. 695 → 696 → 697); picking the newest episode walks backwards
+     * (700 → 699 → 698). Either way the queue stops before the first episode
+     * that has already been fully played. With auto-play disabled in settings,
+     * only the selected episode is queued.
      */
     private suspend fun podcastQueueFor(
         mediaId: String,
@@ -449,14 +454,42 @@ class PlaybackService : MediaLibraryService() {
             return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
         }
         val podcast = repo.podcast(parts[1])
-        val ordered = podcast.media.episodes.sortedByDescending { it.publishedAt ?: 0 }
-        val queue = ordered.map { episodeItem(podcast, it, withUri = true) }
-        val index = ordered.indexOfFirst { it.id == parts[2] }.coerceAtLeast(0)
+        val autoPlay = runCatching { app.settings.autoPlayEnabled() }.getOrDefault(true)
+        val episodes = if (autoPlay) {
+            buildAutoPlayQueue(podcast, parts[2])
+        } else {
+            podcast.media.episodes.filter { it.id == parts[2] }
+        }
+        if (episodes.isEmpty()) {
+            return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        }
+        val queue = episodes.map { episodeItem(podcast, it, withUri = true) }
         var position = startPositionMs
         if (position == C.TIME_UNSET) {
             position = savedPositionMs(mediaId)
         }
-        return MediaSession.MediaItemsWithStartPosition(queue, index, position)
+        return MediaSession.MediaItemsWithStartPosition(queue, 0, position)
+    }
+
+    private suspend fun buildAutoPlayQueue(
+        podcast: LibraryItemExpanded,
+        episodeId: String,
+    ): List<PodcastEpisode> {
+        val chronological = podcast.media.episodes.sortedBy { it.publishedAt ?: 0 }
+        val start = chronological.indexOfFirst { it.id == episodeId }
+        if (start == -1) return emptyList()
+        val direction = if (start == chronological.lastIndex) -1 else +1
+        val queue = mutableListOf(chronological[start])
+        var index = start + direction
+        while (index in chronological.indices) {
+            val episode = chronological[index]
+            val finished = runCatching { repo.progress(podcast.id, episode.id) }
+                .getOrNull()?.isFinished == true
+            if (finished) break
+            queue.add(episode)
+            index += direction
+        }
+        return queue
     }
 
     /** Looks up the server-side resume position for an episode media id. */

@@ -34,7 +34,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -116,7 +119,16 @@ fun EpisodesScreen(
         is EpisodesUi.Ready -> {
             val activeDownloads by app.downloads.active.collectAsState()
             val completedDownloads by app.downloads.completed.collectAsState()
-            val playlistEntries by app.playlist.entries.collectAsState()
+            val playlists by app.playlist.playlists.collectAsState()
+            var pickerEntry by remember { mutableStateOf<PlaylistEntry?>(null) }
+
+            pickerEntry?.let { entry ->
+                PlaylistPickerDialog(
+                    app = app,
+                    entry = entry,
+                    onDismiss = { pickerEntry = null },
+                )
+            }
             LazyColumn(Modifier.fillMaxSize()) {
                 item {
                     PodcastHeader(
@@ -140,17 +152,17 @@ fun EpisodesScreen(
                         row = row,
                         downloadUi = downloadUi,
                         onDownload = { app.downloads.download(state.podcast, row.episode) },
-                        inPlaylist = playlistEntries.any {
-                            it.itemId == itemId && it.episodeId == row.episode.id
+                        inPlaylist = playlists.any { playlist ->
+                            playlist.entries.any {
+                                it.itemId == itemId && it.episodeId == row.episode.id
+                            }
                         },
                         onTogglePlaylist = {
-                            app.playlist.toggle(
-                                PlaylistEntry(
-                                    itemId = itemId,
-                                    episodeId = row.episode.id,
-                                    title = row.episode.title ?: "Episode",
-                                    podcastTitle = state.podcast.media.metadata.title ?: "",
-                                ),
+                            pickerEntry = PlaylistEntry(
+                                itemId = itemId,
+                                episodeId = row.episode.id,
+                                title = row.episode.title ?: "Episode",
+                                podcastTitle = state.podcast.media.metadata.title ?: "",
                             )
                         },
                         isCurrent = playerState.mediaId == "episode:$itemId:${row.episode.id}",

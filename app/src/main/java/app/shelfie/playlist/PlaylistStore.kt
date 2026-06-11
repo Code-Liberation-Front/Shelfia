@@ -9,6 +9,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.UUID
 
 @Serializable
 data class PlaylistEntry(
@@ -18,43 +19,98 @@ data class PlaylistEntry(
     val podcastTitle: String,
 )
 
-/** A single user-curated playlist of episodes, persisted to app storage. */
+@Serializable
+data class UserPlaylist(
+    val id: String,
+    val name: String,
+    val entries: List<PlaylistEntry> = emptyList(),
+)
+
+/** Named, user-curated playlists of episodes, persisted to app storage. */
 class PlaylistStore(context: Context) {
 
-    private val file = File(context.filesDir, "playlist.json")
+    private val file = File(context.filesDir, "playlists.json")
+    private val legacyFile = File(context.filesDir, "playlist.json")
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val _entries = MutableStateFlow(load())
-    val entries: StateFlow<List<PlaylistEntry>> = _entries.asStateFlow()
+    private val _playlists = MutableStateFlow(load())
+    val playlists: StateFlow<List<UserPlaylist>> = _playlists.asStateFlow()
 
-    fun contains(itemId: String, episodeId: String): Boolean =
-        _entries.value.any { it.itemId == itemId && it.episodeId == episodeId }
+    fun create(name: String): String {
+        val id = UUID.randomUUID().toString()
+        update(_playlists.value + UserPlaylist(id, name.trim().ifBlank { "Playlist" }))
+        return id
+    }
 
-    fun toggle(entry: PlaylistEntry) {
-        if (contains(entry.itemId, entry.episodeId)) {
-            remove(entry.itemId, entry.episodeId)
+    fun delete(playlistId: String) {
+        update(_playlists.value.filterNot { it.id == playlistId })
+    }
+
+    fun addTo(playlistId: String, entry: PlaylistEntry) {
+        update(
+            _playlists.value.map { playlist ->
+                if (playlist.id == playlistId && playlist.entries.none { it.matches(entry) }) {
+                    playlist.copy(entries = playlist.entries + entry)
+                } else {
+                    playlist
+                }
+            },
+        )
+    }
+
+    fun removeFrom(playlistId: String, itemId: String, episodeId: String) {
+        update(
+            _playlists.value.map { playlist ->
+                if (playlist.id == playlistId) {
+                    playlist.copy(
+                        entries = playlist.entries.filterNot {
+                            it.itemId == itemId && it.episodeId == episodeId
+                        },
+                    )
+                } else {
+                    playlist
+                }
+            },
+        )
+    }
+
+    fun toggleIn(playlistId: String, entry: PlaylistEntry) {
+        val playlist = _playlists.value.firstOrNull { it.id == playlistId } ?: return
+        if (playlist.entries.any { it.matches(entry) }) {
+            removeFrom(playlistId, entry.itemId, entry.episodeId)
         } else {
-            add(entry)
+            addTo(playlistId, entry)
         }
     }
 
-    @Synchronized
-    fun add(entry: PlaylistEntry) {
-        if (contains(entry.itemId, entry.episodeId)) return
-        update(_entries.value + entry)
-    }
+    fun isInAnyPlaylist(itemId: String, episodeId: String): Boolean =
+        _playlists.value.any { playlist ->
+            playlist.entries.any { it.itemId == itemId && it.episodeId == episodeId }
+        }
 
     @Synchronized
-    fun remove(itemId: String, episodeId: String) {
-        update(_entries.value.filterNot { it.itemId == itemId && it.episodeId == episodeId })
+    private fun update(playlists: List<UserPlaylist>) {
+        _playlists.value = playlists
+        runCatching { file.writeText(json.encodeToString(playlists)) }
     }
 
-    private fun update(entries: List<PlaylistEntry>) {
-        _entries.value = entries
-        runCatching { file.writeText(json.encodeToString(entries)) }
+    private fun load(): List<UserPlaylist> {
+        runCatching {
+            if (file.exists()) {
+                return json.decodeFromString<List<UserPlaylist>>(file.readText())
+            }
+        }
+        // Migrate the single-playlist format from earlier builds.
+        val legacy = runCatching {
+            if (legacyFile.exists()) {
+                json.decodeFromString<List<PlaylistEntry>>(legacyFile.readText())
+            } else {
+                null
+            }
+        }.getOrNull()
+        return listOf(UserPlaylist(id = "default", name = "My Playlist", entries = legacy ?: emptyList()))
     }
 
-    private fun load(): List<PlaylistEntry> = runCatching {
-        if (file.exists()) json.decodeFromString<List<PlaylistEntry>>(file.readText()) else emptyList()
-    }.getOrDefault(emptyList())
+    private fun PlaylistEntry.matches(other: PlaylistEntry): Boolean =
+        itemId == other.itemId && episodeId == other.episodeId
 }

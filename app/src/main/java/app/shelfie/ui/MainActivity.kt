@@ -279,24 +279,36 @@ private fun MainScaffold(
             modifier = Modifier.padding(padding),
         ) {
             composable("home") {
-                HomeScreen(
-                    app = app,
-                    controller = controller,
-                    onOpenPodcast = { itemId -> navController.navigate("podcast/$itemId") },
-                )
+                if (!isOnline) {
+                    OfflineTabHint()
+                } else {
+                    HomeScreen(
+                        app = app,
+                        controller = controller,
+                        onOpenPodcast = { itemId -> navController.navigate("podcast/$itemId") },
+                    )
+                }
             }
             composable("latest") {
-                LatestScreen(
-                    app = app,
-                    controller = controller,
-                    playerState = playerState,
-                )
+                if (!isOnline) {
+                    OfflineTabHint()
+                } else {
+                    LatestScreen(
+                        app = app,
+                        controller = controller,
+                        playerState = playerState,
+                    )
+                }
             }
             composable("library") {
-                PodcastsScreen(
-                    app = app,
-                    onOpenPodcast = { itemId -> navController.navigate("podcast/$itemId") },
-                )
+                if (!isOnline) {
+                    OfflineTabHint()
+                } else {
+                    PodcastsScreen(
+                        app = app,
+                        onOpenPodcast = { itemId -> navController.navigate("podcast/$itemId") },
+                    )
+                }
             }
             composable("podcast/{itemId}") { entry ->
                 val itemId = entry.arguments?.getString("itemId").orEmpty()
