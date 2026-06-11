@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,9 +23,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,29 +35,38 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.shelfie.ui.theme.ShelfieSurfaceHigh
 
-/** Tracks whether the device currently has a validated internet connection. */
+private fun ConnectivityManager.isOnlineNow(): Boolean {
+    val caps = getNetworkCapabilities(activeNetwork) ?: return false
+    return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+}
+
+/**
+ * Tracks whether the device currently has a validated internet connection.
+ * Uses the default-network callback plus a low-frequency poll: callbacks alone
+ * can miss transitions (e.g. cellular toggled off while the app is open).
+ */
 @Composable
 fun rememberIsOnline(): State<Boolean> {
     val context = LocalContext.current
     val online = remember { mutableStateOf(true) }
+    val manager = remember {
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    }
 
     DisposableEffect(Unit) {
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-
-        fun currentlyOnline(): Boolean {
-            val caps = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
-            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        }
-
-        online.value = currentlyOnline()
+        online.value = manager.isOnlineNow()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                online.value = true
+                online.value = manager.isOnlineNow()
             }
 
             override fun onLost(network: Network) {
-                online.value = currentlyOnline()
+                online.value = manager.isOnlineNow()
+            }
+
+            override fun onUnavailable() {
+                online.value = false
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
@@ -64,11 +74,16 @@ fun rememberIsOnline(): State<Boolean> {
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             }
         }
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        manager.registerNetworkCallback(request, callback)
+        manager.registerDefaultNetworkCallback(callback)
         onDispose { manager.unregisterNetworkCallback(callback) }
+    }
+
+    // Safety net for missed callbacks.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(3_000)
+            online.value = manager.isOnlineNow()
+        }
     }
     return online
 }

@@ -273,10 +273,15 @@ private fun MainScaffold(
             }
         },
     ) { padding ->
+        // Non-tab screens have no top bar, and a zero-height topBar slot means the
+        // Scaffold applies no status-bar inset — pad explicitly. When offline the
+        // banner occupies the slot (with its own inset), so skip it then.
         NavHost(
             navController = navController,
             startDestination = "home",
-            modifier = Modifier.padding(padding),
+            modifier = Modifier
+                .padding(padding)
+                .then(if (!onTabScreen && isOnline) Modifier.statusBarsPadding() else Modifier),
         ) {
             composable("home") {
                 if (!isOnline) {
