@@ -174,7 +174,7 @@ class PlaybackService : MediaLibraryService() {
                     /* threshold= */ -14f,
                     /* postGain= */ 3f,
                 )
-                setLimiterAllChannels(limiter)
+                setLimiterAllChannelsTo(limiter)
                 setEnabled(true)
             }
         }
