@@ -10,7 +10,8 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.shelfie"
+        // Must match the package name registered in the Google Play Console.
+        applicationId = "com.shelfie.zbuddy"
         minSdk = 26
         targetSdk = 35
         versionCode = 15
