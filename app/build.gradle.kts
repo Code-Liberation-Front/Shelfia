@@ -57,6 +57,11 @@ android {
             } else {
                 signingConfigs.getByName("shared")
             }
+            // Embed native symbol tables in the bundle so Play can symbolize
+            // crashes/ANRs from library .so files (DataStore, androidx.graphics).
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
         }
     }
 
