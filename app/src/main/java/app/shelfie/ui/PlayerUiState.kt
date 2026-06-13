@@ -11,6 +11,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import app.shelfie.playback.EXTRA_PUBLISHED_AT
+import app.shelfie.playback.EXTRA_PUB_DATE
 import kotlinx.coroutines.delay
 
 @Stable
@@ -19,6 +21,7 @@ class PlayerUiState {
     var title by mutableStateOf("")
     var artist by mutableStateOf("")
     var artworkUri by mutableStateOf<Uri?>(null)
+    var publishDate by mutableStateOf("")
     var isPlaying by mutableStateOf(false)
     var isLoading by mutableStateOf(false)
     var positionMs by mutableStateOf(0L)
@@ -42,6 +45,9 @@ fun rememberPlayerUiState(controller: MediaController?): PlayerUiState {
             state.title = controller.mediaMetadata.title?.toString() ?: ""
             state.artist = controller.mediaMetadata.artist?.toString() ?: ""
             state.artworkUri = controller.mediaMetadata.artworkUri
+            val extras = controller.mediaMetadata.extras
+            val publishedAt = extras?.getLong(EXTRA_PUBLISHED_AT, 0L)?.takeIf { it > 0L }
+            state.publishDate = formatEpisodeDate(publishedAt, extras?.getString(EXTRA_PUB_DATE))
             state.isPlaying = controller.isPlaying
             state.isLoading = controller.playbackState == Player.STATE_BUFFERING
             state.positionMs = controller.currentPosition.coerceAtLeast(0L)

@@ -188,6 +188,7 @@ private fun ContinueCard(
     coverUrl: String,
     onClick: () -> Unit,
 ) {
+    val completed = isNearlyComplete(entry.progress.toFloat(), isFinished = false)
     Column(
         modifier = Modifier
             .width(150.dp)
@@ -197,24 +198,27 @@ private fun ContinueCard(
             model = coverUrl,
             contentDescription = entry.episode.title,
             contentScale = ContentScale.Crop,
+            completed = completed,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(10.dp)),
         )
-        LinearProgressIndicator(
-            progress = { entry.progress.toFloat() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp)
-                .height(3.dp),
-        )
-        Text(
+        if (!completed) {
+            LinearProgressIndicator(
+                progress = { entry.progress.toFloat() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+                    .height(3.dp),
+            )
+        }
+        MarqueeText(
             entry.episode.title ?: "Episode",
             style = MaterialTheme.typography.titleSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
         )
         Text(
             entry.podcast.media.metadata.title ?: "",
@@ -223,6 +227,16 @@ private fun ContinueCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        val date = formatEpisodeDate(entry.episode.publishedAt, entry.episode.pubDate)
+        if (date.isNotBlank()) {
+            Text(
+                date,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

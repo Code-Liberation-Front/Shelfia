@@ -45,6 +45,10 @@ fun formatEpisodeDate(publishedAt: Long?, pubDate: String?): String {
     }.getOrNull() ?: pubDate
 }
 
+/** True when an episode is finished or within 1% of the end. */
+fun isNearlyComplete(fraction: Float, isFinished: Boolean): Boolean =
+    isFinished || fraction >= 0.99f
+
 fun stripHtml(html: String?): String =
     html.orEmpty()
         .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")

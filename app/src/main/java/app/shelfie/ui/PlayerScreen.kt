@@ -54,6 +54,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -149,11 +150,11 @@ fun PlayerScreen(
         )
         Spacer(Modifier.height(24.dp))
 
-        Text(
+        MarqueeText(
             state.title,
             style = MaterialTheme.typography.titleLarge,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
         Text(
             state.artist,
@@ -162,6 +163,13 @@ fun PlayerScreen(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (state.publishDate.isNotBlank()) {
+            Text(
+                state.publishDate,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(24.dp))
 
         SeekBar(state, controller)

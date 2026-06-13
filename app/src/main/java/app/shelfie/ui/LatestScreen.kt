@@ -231,10 +231,12 @@ private fun LatestEpisodeRow(
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
+        val completed = progress != null && isNearlyComplete(progress.fraction, progress.isFinished)
         CoverImage(
             model = coverUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            completed = completed,
             modifier = Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(8.dp)),
@@ -244,29 +246,38 @@ private fun LatestEpisodeRow(
                 .weight(1f)
                 .padding(horizontal = 12.dp),
         ) {
-            Text(
+            MarqueeText(
                 episode.title ?: "Episode",
                 style = MaterialTheme.typography.titleSmall,
                 color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
             )
+            if (podcastTitle.isNotBlank()) {
+                Text(
+                    podcastTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             val durationSec = (episode.audioTrack?.duration ?: episode.audioFile?.duration ?: 0.0).toLong()
-            val meta = listOf(
-                podcastTitle,
+            val dateLine = listOf(
                 formatEpisodeDate(episode.publishedAt, episode.pubDate),
                 formatDuration(durationSec),
             )
                 .filter { it.isNotBlank() }
                 .joinToString(" • ")
-            Text(
-                meta,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (progress != null && progress.fraction > 0.01f && !progress.isFinished) {
+            if (dateLine.isNotBlank()) {
+                Text(
+                    dateLine,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (progress != null && progress.fraction > 0.01f && !completed) {
                 LinearProgressIndicator(
                     progress = { progress.fraction },
                     modifier = Modifier

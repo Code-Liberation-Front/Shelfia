@@ -64,6 +64,11 @@ private const val STYLE_GRID = 2
 // Android Auto completion badges on playable items.
 private const val EXTRA_COMPLETION_STATUS = "android.media.extra.PLAYBACK_STATUS"
 private const val EXTRA_COMPLETION_PERCENTAGE = "androidx.media.MediaItem.Extras.COMPLETION_PERCENTAGE"
+
+// Episode publish date, carried in the media metadata so the player UI can show
+// it under the podcast name.
+internal const val EXTRA_PUBLISHED_AT = "app.shelfie.publishedAt"
+internal const val EXTRA_PUB_DATE = "app.shelfie.pubDate"
 private const val STATUS_NOT_PLAYED = 0
 private const val STATUS_PARTIALLY_PLAYED = 1
 private const val STATUS_FULLY_PLAYED = 2
@@ -802,6 +807,8 @@ class PlaybackService : MediaLibraryService() {
                 extras.putDouble(EXTRA_COMPLETION_PERCENTAGE, progress.progress.coerceIn(0.0, 1.0))
             }
         }
+        episode.publishedAt?.let { extras.putLong(EXTRA_PUBLISHED_AT, it) }
+        episode.pubDate?.let { extras.putString(EXTRA_PUB_DATE, it) }
         val metadata = MediaMetadata.Builder()
             .setTitle(episode.title ?: "Episode")
             .setArtist(podcast.media.metadata.title)

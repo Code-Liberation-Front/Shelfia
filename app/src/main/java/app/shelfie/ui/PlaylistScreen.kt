@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +37,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -46,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -65,6 +68,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 private const val DOWNLOADED_PLAYLIST_ID = "__downloaded__"
+
+private data class PlaylistRowMeta(
+    val fraction: Float,
+    val isFinished: Boolean,
+    val publishDate: String,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +122,36 @@ fun PlaylistScreen(
             .map { PlaylistEntry(it.itemId, it.episodeId, it.title, it.podcastTitle) }
     } else {
         selectedPlaylist?.entries ?: emptyList()
+    }
+
+    // Playlist entries only store title/podcast, so look up publish date and
+    // listening progress for each row (cached, so this is cheap after the first
+    // load and degrades gracefully offline).
+    val rowMeta by produceState(emptyMap<String, PlaylistRowMeta>(), rows) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val dates = mutableMapOf<String, Pair<Long?, String?>>()
+                rows.map { it.itemId }.distinct().forEach { id ->
+                    runCatching {
+                        app.repository.podcast(id).media.episodes.forEach { ep ->
+                            dates["$id:${ep.id}"] = ep.publishedAt to ep.pubDate
+                        }
+                    }
+                }
+                rows.associate { entry ->
+                    val key = "${entry.itemId}:${entry.episodeId}"
+                    val prog = runCatching {
+                        app.repository.progress(entry.itemId, entry.episodeId)
+                    }.getOrNull()
+                    val (publishedAt, pubDate) = dates[key] ?: (null to null)
+                    key to PlaylistRowMeta(
+                        fraction = (prog?.progress ?: 0.0).toFloat().coerceIn(0f, 1f),
+                        isFinished = prog?.isFinished == true,
+                        publishDate = formatEpisodeDate(publishedAt, pubDate),
+                    )
+                }
+            }.getOrDefault(emptyMap())
+        }
     }
 
     PullToRefreshBox(
@@ -210,6 +249,7 @@ fun PlaylistScreen(
                     entry = entry,
                     coverUrl = app.repository.coverUrl(entry.itemId),
                     isCurrent = playerState.mediaId == episodeMediaId(entry.itemId, entry.episodeId),
+                    meta = rowMeta["${entry.itemId}:${entry.episodeId}"],
                     removable = selectedId != DOWNLOADED_PLAYLIST_ID,
                     onClick = { controller?.playEntries(rows, index) },
                     onRemove = { app.playlist.removeFrom(selectedId, entry.itemId, entry.episodeId) },
@@ -497,10 +537,13 @@ private fun PlaylistRow(
     entry: PlaylistEntry,
     coverUrl: String,
     isCurrent: Boolean,
+    meta: PlaylistRowMeta?,
     removable: Boolean,
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    val fraction = meta?.fraction ?: 0f
+    val completed = isNearlyComplete(fraction, meta?.isFinished == true)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -512,6 +555,7 @@ private fun PlaylistRow(
             model = coverUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            completed = completed,
             modifier = Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(8.dp)),
@@ -525,16 +569,37 @@ private fun PlaylistRow(
                 entry.title,
                 style = MaterialTheme.typography.titleSmall,
                 color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                entry.podcastTitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (entry.podcastTitle.isNotBlank()) {
+                Text(
+                    entry.podcastTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val publishDate = meta?.publishDate
+            if (!publishDate.isNullOrBlank()) {
+                Text(
+                    publishDate,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (fraction > 0.01f && !completed) {
+                Spacer(Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
+                )
+            }
         }
         if (removable) {
             IconButton(onClick = onRemove) {
