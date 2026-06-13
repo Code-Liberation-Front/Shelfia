@@ -14,7 +14,7 @@ android {
         applicationId = "com.shelfie.zbuddy"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
+        versionCode = 17
         versionName = "0.9.0"
     }
 
