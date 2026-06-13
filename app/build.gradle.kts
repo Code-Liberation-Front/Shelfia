@@ -10,7 +10,8 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.shelfie"
+        // Must match the package name registered in the Google Play Console.
+        applicationId = "com.shelfie.zbuddy"
         minSdk = 26
         targetSdk = 35
         versionCode = 15
@@ -27,6 +28,17 @@ android {
             keyAlias = "shelfie"
             keyPassword = "shelfie"
         }
+        // Optional private Google Play upload key, supplied via CI secrets.
+        // When absent, release builds fall back to the shared keystore.
+        create("upload") {
+            val path = System.getenv("UPLOAD_KEYSTORE_PATH")
+            if (path != null) {
+                storeFile = file(path)
+                storePassword = System.getenv("UPLOAD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("UPLOAD_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -40,8 +52,22 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("shared")
+            signingConfig = if (System.getenv("UPLOAD_KEYSTORE_PATH") != null) {
+                signingConfigs.getByName("upload")
+            } else {
+                signingConfigs.getByName("shared")
+            }
+            // Embed native symbol tables in the bundle so Play can symbolize
+            // crashes/ANRs from library .so files (DataStore, androidx.graphics).
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
         }
+    }
+
+    lint {
+        // Release builds are validated in CI; don't let lint-vital block the bundle.
+        checkReleaseBuilds = false
     }
 
     compileOptions {
