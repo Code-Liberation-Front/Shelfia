@@ -25,8 +25,8 @@ Shelfie connects to your self-hosted Audiobookshelf server and turns your podcas
 
 Grab the APK one of two ways:
 
-1. **Releases** — the [`latest` release](../../releases/tag/latest) always carries `shelfie-debug.apk` built from the newest commit on the default branch.
-2. **Actions artifacts** — every CI run on the [Actions tab](../../actions) uploads a `shelfie-debug-apk` artifact.
+1. **Releases** — each [release](../../releases) is built from a version tag (`vX.Y.Z`) and carries `shelfie-debug.apk` (sideload) and `shelfie-release.aab` (Google Play). Grab the newest one.
+2. **Actions artifacts** — any manual CI run on the [Actions tab](../../actions) uploads `shelfie-debug-apk` and `shelfie-release-aab` artifacts.
 
 Sideload it by enabling *Install unknown apps* for your browser/file manager, then opening the APK.
 
@@ -62,7 +62,7 @@ Every CI run also produces `shelfie-release.aab`, a Play-ready Android App Bundl
 1. In the [Play Console](https://play.google.com/console) choose **Create app** (name *Shelfie*, App, Free).
 2. Go to **Testing → Internal testing → Create new release**.
 3. Accept **Play App Signing** when prompted (Google holds the final signing key; the AAB is signed with our upload key).
-4. Upload `shelfie-release.aab` from the latest CI run or the `latest` GitHub release.
+4. Upload `shelfie-release.aab` from the newest tagged release or a manual CI run.
 5. Add tester email addresses under the **Testers** tab, save, and share the opt-in link — testers install/update through Play like any app.
 6. Each new upload needs a higher `versionCode` (bumped with each release in this repo).
 

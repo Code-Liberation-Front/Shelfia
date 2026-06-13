@@ -2,7 +2,8 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -57,15 +58,14 @@ jobs:
           name: shelfie-release-aab
           path: shelfie-release.aab
 
-      - name: Publish rolling release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest build
-          prerelease: true
+          # Publishes a release for the pushed tag (e.g. v0.9.0).
+          name: ${{ github.ref_name }}
           body: |
-            Automatically built from the latest commit on the default branch.
+            Built from tag `${{ github.ref_name }}`.
             Download `shelfie-debug.apk` below and sideload it on your device.
             `shelfie-release.aab` is the Google Play upload bundle.
           files: |
