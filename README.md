@@ -55,6 +55,19 @@ Shelfie signs in through Audiobookshelf's mobile OAuth flow using the redirect U
 
 Save the setting and try again — no app changes needed. Multiple entries are supported, so you can keep URIs for other apps (e.g. the official app or ShelfPlayer) alongside Shelfie's.
 
+## Google Play (internal testing)
+
+Every CI run also produces `shelfie-release.aab`, a Play-ready Android App Bundle (minified release build). To distribute through the Play Console:
+
+1. In the [Play Console](https://play.google.com/console) choose **Create app** (name *Shelfie*, App, Free).
+2. Go to **Testing → Internal testing → Create new release**.
+3. Accept **Play App Signing** when prompted (Google holds the final signing key; the AAB is signed with our upload key).
+4. Upload `shelfie-release.aab` from the latest CI run or the `latest` GitHub release.
+5. Add tester email addresses under the **Testers** tab, save, and share the opt-in link — testers install/update through Play like any app.
+6. Each new upload needs a higher `versionCode` (bumped with each release in this repo).
+
+By default the AAB is signed with the repo's shared keystore as the upload key. To use a private upload key instead, add repository secrets `UPLOAD_KEYSTORE_BASE64` (base64 of the keystore), `UPLOAD_KEYSTORE_PASSWORD`, `UPLOAD_KEY_ALIAS`, and `UPLOAD_KEY_PASSWORD` — CI switches to it automatically. If the upload key ever needs replacing, Play App Signing supports an upload-key reset.
+
 ## Building locally
 
 Requirements: JDK 17+ and the Android SDK (API 35).

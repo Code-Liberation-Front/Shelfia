@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,17 +26,36 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug
+      - name: Prepare Play upload keystore (optional)
+        if: env.UPLOAD_KEYSTORE_BASE64 != ''
+        run: |
+          echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+          {
+            echo "UPLOAD_KEYSTORE_PATH=$RUNNER_TEMP/upload.keystore"
+            echo "UPLOAD_KEYSTORE_PASSWORD=${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}"
+            echo "UPLOAD_KEY_ALIAS=${{ secrets.UPLOAD_KEY_ALIAS }}"
+            echo "UPLOAD_KEY_PASSWORD=${{ secrets.UPLOAD_KEY_PASSWORD }}"
+          } >> "$GITHUB_ENV"
 
-      - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk shelfie-debug.apk
+      - name: Build debug APK and release bundle
+        run: ./gradlew --no-daemon assembleDebug bundleRelease
+
+      - name: Rename outputs
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk shelfie-debug.apk
+          cp app/build/outputs/bundle/release/app-release.aab shelfie-release.aab
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: shelfie-debug-apk
           path: shelfie-debug.apk
+
+      - name: Upload Play bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shelfie-release-aab
+          path: shelfie-release.aab
 
       - name: Publish rolling release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -46,4 +67,7 @@ jobs:
           body: |
             Automatically built from the latest commit on the default branch.
             Download `shelfie-debug.apk` below and sideload it on your device.
-          files: shelfie-debug.apk
+            `shelfie-release.aab` is the Google Play upload bundle.
+          files: |
+            shelfie-debug.apk
+            shelfie-release.aab
