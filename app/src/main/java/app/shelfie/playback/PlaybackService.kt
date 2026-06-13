@@ -2,7 +2,9 @@ package app.shelfie.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.media.audiofx.DynamicsProcessing
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -76,6 +78,7 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var player: ExoPlayer
     private var castPlayer: CastPlayer? = null
     private var mediaSession: MediaLibrarySession? = null
+    private var dynamicsProcessing: DynamicsProcessing? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val activePlayer: Player? get() = mediaSession?.player
@@ -126,9 +129,55 @@ class PlaybackService : MediaLibraryService() {
                     serviceScope.launch { pushProgress() }
                 }
             }
+
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                // The effect is bound to the audio session; re-attach on changes.
+                serviceScope.launch {
+                    applyNormalization(app.settings.normalizeAudioEnabled())
+                }
+            }
         })
+        serviceScope.launch {
+            app.settings.normalizeAudio.collect { enabled -> applyNormalization(enabled) }
+        }
         initCast()
         startProgressSync()
+    }
+
+    /**
+     * Peak normalization: a limiter (via DynamicsProcessing, Android 9+) on the
+     * player's audio session that clamps volume spikes such as loud ad breaks.
+     */
+    private fun applyNormalization(enabled: Boolean) {
+        runCatching { dynamicsProcessing?.release() }
+        dynamicsProcessing = null
+        if (!enabled || Build.VERSION.SDK_INT < 28) return
+        val sessionId = player.audioSessionId
+        if (sessionId == C.AUDIO_SESSION_ID_UNSET) return
+        runCatching {
+            val config = DynamicsProcessing.Config.Builder(
+                DynamicsProcessing.VARIANT_FAVOR_TIME_RESOLUTION,
+                /* channelCount= */ 2,
+                /* preEqInUse= */ false, /* preEqBandCount= */ 0,
+                /* mbcInUse= */ false, /* mbcBandCount= */ 0,
+                /* postEqInUse= */ false, /* postEqBandCount= */ 0,
+                /* limiterInUse= */ true,
+            ).build()
+            dynamicsProcessing = DynamicsProcessing(0, sessionId, config).apply {
+                val limiter = DynamicsProcessing.Limiter(
+                    /* inUse= */ true,
+                    /* enabled= */ true,
+                    /* linkGroup= */ 0,
+                    /* attackTime= */ 1f,
+                    /* releaseTime= */ 60f,
+                    /* ratio= */ 8f,
+                    /* threshold= */ -14f,
+                    /* postGain= */ 3f,
+                )
+                setLimiterAllChannelsTo(limiter)
+                setEnabled(true)
+            }
+        }
     }
 
     /** Chromecast support: swaps the session's player when a cast session starts/ends. */
@@ -173,6 +222,8 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         serviceScope.cancel()
+        runCatching { dynamicsProcessing?.release() }
+        dynamicsProcessing = null
         mediaSession?.release()
         mediaSession = null
         castPlayer?.setSessionAvailabilityListener(null)

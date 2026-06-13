@@ -179,6 +179,26 @@ fun SettingsScreen(app: ShelfieApp, onOpenDownloads: () -> Unit, onBack: () -> U
                     },
                 )
             }
+            val normalize by app.settings.normalizeAudio.collectAsState(initial = false)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Normalize volume", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Limit volume peaks like loud ad breaks (Android 9+)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = normalize,
+                    onCheckedChange = { enabled ->
+                        scope.launch { app.settings.setNormalizeAudio(enabled) }
+                    },
+                )
+            }
         }
 
         SettingsCard(title = "Downloads") {

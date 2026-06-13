@@ -36,6 +36,7 @@ class SettingsStore(private val context: Context) {
         val lastPlayedMediaId = stringPreferencesKey("last_played_media_id")
         val lastPlayedPositionMs = longPreferencesKey("last_played_position_ms")
         val autoPlay = booleanPreferencesKey("auto_play")
+        val normalizeAudio = booleanPreferencesKey("normalize_audio")
         val downloadLocation = stringPreferencesKey("download_location")
         val downloadTreeUri = stringPreferencesKey("download_tree_uri")
     }
@@ -66,6 +67,16 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setAutoPlay(enabled: Boolean) {
         context.dataStore.edit { it[Keys.autoPlay] = enabled }
+    }
+
+    /** Whether to limit volume peaks (e.g. loud ad breaks). Defaults to off. */
+    val normalizeAudio: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.normalizeAudio] ?: false }
+
+    suspend fun normalizeAudioEnabled(): Boolean = normalizeAudio.first()
+
+    suspend fun setNormalizeAudio(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.normalizeAudio] = enabled }
     }
 
     val credentials: Flow<Credentials> = context.dataStore.data.map { prefs ->
