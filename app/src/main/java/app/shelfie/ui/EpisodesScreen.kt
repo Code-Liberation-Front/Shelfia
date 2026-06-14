@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistAddCheck
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -121,19 +122,63 @@ fun EpisodesScreen(
 
         is EpisodesUi.Ready -> {
             val scope = rememberCoroutineScope()
-            val activeDownloads by app.downloads.active.collectAsState()
             val completedDownloads by app.downloads.completed.collectAsState()
-            val playlists by app.playlist.playlists.collectAsState()
             var pickerEntry by remember { mutableStateOf<PlaylistEntry?>(null) }
+            var selectMode by remember { mutableStateOf(false) }
+            var selectedIds by remember { mutableStateOf(emptySet<String>()) }
+            var showBulkPlaylist by remember { mutableStateOf(false) }
+
+            val episodeRows = state.episodes
+            val selectedEpisodes = episodeRows.filter { it.episode.id in selectedIds }.map { it.episode }
+            fun exitSelect() {
+                selectMode = false
+                selectedIds = emptySet()
+            }
 
             pickerEntry?.let { entry ->
-                PlaylistPickerDialog(
+                PlaylistPickerDialog(app = app, entry = entry, onDismiss = { pickerEntry = null })
+            }
+            if (showBulkPlaylist) {
+                BulkPlaylistPickerDialog(
                     app = app,
-                    entry = entry,
-                    onDismiss = { pickerEntry = null },
+                    entries = selectedEpisodes.map { ep ->
+                        PlaylistEntry(
+                            itemId = itemId,
+                            episodeId = ep.id,
+                            title = ep.title ?: "Episode",
+                            podcastTitle = state.podcast.media.metadata.title ?: "",
+                        )
+                    },
+                    onDismiss = {
+                        showBulkPlaylist = false
+                        exitSelect()
+                    },
                 )
             }
-            LazyColumn(Modifier.fillMaxSize()) {
+
+            Column(Modifier.fillMaxSize()) {
+                if (episodeRows.isNotEmpty()) {
+                    SelectionBar(
+                        selectMode = selectMode,
+                        selectedCount = selectedIds.size,
+                        allSelected = selectedIds.size == episodeRows.size,
+                        onEnter = { selectMode = true },
+                        onCancel = { exitSelect() },
+                        onToggleAll = {
+                            selectedIds = if (selectedIds.size == episodeRows.size) {
+                                emptySet()
+                            } else {
+                                episodeRows.map { it.episode.id }.toSet()
+                            }
+                        },
+                        onBulkPlaylist = { if (selectedIds.isNotEmpty()) showBulkPlaylist = true },
+                        onBulkDownload = {
+                            selectedEpisodes.forEach { app.downloads.download(state.podcast, it) }
+                            exitSelect()
+                        },
+                    )
+                }
+                LazyColumn(Modifier.weight(1f)) {
                 item {
                     PodcastHeader(
                         podcast = state.podcast,
@@ -170,6 +215,15 @@ fun EpisodesScreen(
                     EpisodeRow(
                         row = row,
                         coverUrl = app.repository.coverUrl(itemId),
+                        selectMode = selectMode,
+                        selected = row.episode.id in selectedIds,
+                        onToggleSelect = {
+                            selectedIds = if (row.episode.id in selectedIds) {
+                                selectedIds - row.episode.id
+                            } else {
+                                selectedIds + row.episode.id
+                            }
+                        },
                         actions = EpisodeMenuActions(
                             isFinished = row.isFinished,
                             isDownloaded = isDownloaded,
@@ -208,6 +262,7 @@ fun EpisodesScreen(
                         },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                }
                 }
             }
         }
@@ -309,6 +364,9 @@ private fun TrackRow(
 private fun EpisodeRow(
     row: EpisodeRowData,
     coverUrl: String,
+    selectMode: Boolean,
+    selected: Boolean,
+    onToggleSelect: () -> Unit,
     actions: EpisodeMenuActions,
     isCurrent: Boolean,
     isPlaying: Boolean,
@@ -323,13 +381,18 @@ private fun EpisodeRow(
     )
         .filter { it.isNotBlank() }
         .joinToString(" • ")
-    EpisodeLongPressBox(onClick = onClick, actions = actions, modifier = Modifier.fillMaxWidth()) {
+
+    val rowContent: @Composable () -> Unit = {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
+            if (selectMode) {
+                Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })
+                Spacer(Modifier.width(4.dp))
+            }
             EpisodeRowContent(
                 coverUrl = coverUrl,
                 title = episode.title ?: "Episode",
@@ -339,29 +402,39 @@ private fun EpisodeRow(
                 completed = completed,
                 titleColor = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified,
             )
-            Spacer(Modifier.width(4.dp))
-            when {
-                row.isFinished && !isCurrent -> Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = "Finished",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(36.dp),
-                )
+            if (!selectMode) {
+                Spacer(Modifier.width(4.dp))
+                when {
+                    row.isFinished && !isCurrent -> Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = "Finished",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(36.dp),
+                    )
 
-                isCurrent && isPlaying -> Icon(
-                    Icons.Filled.PauseCircle,
-                    contentDescription = "Pause",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(36.dp),
-                )
+                    isCurrent && isPlaying -> Icon(
+                        Icons.Filled.PauseCircle,
+                        contentDescription = "Pause",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp),
+                    )
 
-                else -> Icon(
-                    Icons.Filled.PlayCircle,
-                    contentDescription = "Play",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(36.dp),
-                )
+                    else -> Icon(
+                        Icons.Filled.PlayCircle,
+                        contentDescription = "Play",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp),
+                    )
+                }
             }
+        }
+    }
+
+    if (selectMode) {
+        Box(Modifier.fillMaxWidth().clickable { onToggleSelect() }) { rowContent() }
+    } else {
+        EpisodeLongPressBox(onClick = onClick, actions = actions, modifier = Modifier.fillMaxWidth()) {
+            rowContent()
         }
     }
 }

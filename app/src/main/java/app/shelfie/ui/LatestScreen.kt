@@ -172,7 +172,7 @@ private fun LatestContent(
             }
 
             Column(Modifier.fillMaxSize()) {
-                LatestSelectionBar(
+                SelectionBar(
                     selectMode = selectMode,
                     selectedCount = selectedIds.size,
                     allSelected = state.episodes.isNotEmpty() && selectedIds.size == state.episodes.size,
@@ -253,74 +253,6 @@ private fun LatestContent(
                         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                     }
                 }
-            }
-        }
-    }
-}
-
-private fun bulkDownload(
-    app: ShelfieApp,
-    scope: CoroutineScope,
-    episodes: List<PodcastEpisode>,
-) {
-    scope.launch(Dispatchers.IO) {
-        episodes.groupBy { it.libraryItemId }.forEach { (itemId, eps) ->
-            runCatching {
-                val podcast = app.repository.podcast(itemId)
-                eps.forEach { ep ->
-                    podcast.media.episodes.firstOrNull { it.id == ep.id }
-                        ?.let { app.downloads.download(podcast, it) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LatestSelectionBar(
-    selectMode: Boolean,
-    selectedCount: Int,
-    allSelected: Boolean,
-    onEnter: () -> Unit,
-    onCancel: () -> Unit,
-    onToggleAll: () -> Unit,
-    onBulkPlaylist: () -> Unit,
-    onBulkDownload: () -> Unit,
-) {
-    if (!selectMode) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-        ) {
-            TextButton(onClick = onEnter) {
-                Icon(Icons.Filled.Checklist, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Select")
-            }
-        }
-    } else {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-        ) {
-            IconButton(onClick = onCancel) {
-                Icon(Icons.Filled.Close, contentDescription = "Cancel selection")
-            }
-            Text("$selectedCount selected", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onToggleAll) {
-                Text(if (allSelected) "None" else "All")
-            }
-            IconButton(onClick = onBulkPlaylist, enabled = selectedCount > 0) {
-                Icon(Icons.Filled.PlaylistAdd, contentDescription = "Add selected to playlist")
-            }
-            IconButton(onClick = onBulkDownload, enabled = selectedCount > 0) {
-                Icon(Icons.Filled.Download, contentDescription = "Download selected")
             }
         }
     }

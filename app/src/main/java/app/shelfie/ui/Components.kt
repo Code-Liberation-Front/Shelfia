@@ -2,16 +2,21 @@ package app.shelfie.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
@@ -22,14 +27,17 @@ import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -40,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import app.shelfie.ShelfieApp
+import app.shelfie.data.PodcastEpisode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -237,6 +246,79 @@ fun setEpisodeFinished(
 ) {
     scope.launch(Dispatchers.IO) {
         runCatching { app.repository.setFinished(itemId, episodeId, finished, durationSec) }
+    }
+}
+
+/**
+ * Header bar for multi-select episode lists: a "Select" entry button, and in
+ * select mode a count, Select-all/None toggle, and bulk download / add-to-playlist.
+ */
+@Composable
+fun SelectionBar(
+    selectMode: Boolean,
+    selectedCount: Int,
+    allSelected: Boolean,
+    onEnter: () -> Unit,
+    onCancel: () -> Unit,
+    onToggleAll: () -> Unit,
+    onBulkPlaylist: () -> Unit,
+    onBulkDownload: () -> Unit,
+) {
+    if (!selectMode) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+        ) {
+            TextButton(onClick = onEnter) {
+                Icon(Icons.Filled.Checklist, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Select")
+            }
+        }
+    } else {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+        ) {
+            IconButton(onClick = onCancel) {
+                Icon(Icons.Filled.Close, contentDescription = "Cancel selection")
+            }
+            Text("$selectedCount selected", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onToggleAll) {
+                Text(if (allSelected) "None" else "All")
+            }
+            IconButton(onClick = onBulkPlaylist, enabled = selectedCount > 0) {
+                Icon(Icons.Filled.PlaylistAdd, contentDescription = "Add selected to playlist")
+            }
+            IconButton(onClick = onBulkDownload, enabled = selectedCount > 0) {
+                Icon(Icons.Filled.Download, contentDescription = "Download selected")
+            }
+        }
+    }
+}
+
+/** Downloads a batch of episodes for offline use. */
+fun bulkDownload(
+    app: ShelfieApp,
+    scope: CoroutineScope,
+    episodes: List<PodcastEpisode>,
+) {
+    scope.launch(Dispatchers.IO) {
+        episodes.groupBy { it.libraryItemId }.forEach { (itemId, eps) ->
+            runCatching {
+                val podcast = app.repository.podcast(itemId)
+                eps.forEach { ep ->
+                    podcast.media.episodes.firstOrNull { it.id == ep.id }
+                        ?.let { app.downloads.download(podcast, it) }
+                }
+            }
+        }
     }
 }
 
