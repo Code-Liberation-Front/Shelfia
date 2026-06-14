@@ -222,8 +222,8 @@ private fun PodcastResultRow(title: String, author: String, coverUrl: String, on
                 .size(48.dp)
                 .clip(RoundedCornerShape(8.dp)),
         )
-        Column(Modifier.padding(start = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            MarqueeText(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.fillMaxWidth())
             if (author.isNotBlank()) {
                 Text(
                     author,
@@ -265,22 +265,30 @@ private fun EpisodeResultRow(
                 .weight(1f)
                 .padding(horizontal = 12.dp),
         ) {
-            Text(
+            MarqueeText(
                 episode.title ?: "Episode",
                 style = MaterialTheme.typography.titleSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
             )
-            val meta = listOf(podcastTitle, formatDate(episode.publishedAt))
-                .filter { it.isNotBlank() }
-                .joinToString(" • ")
-            Text(
-                meta,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (podcastTitle.isNotBlank()) {
+                Text(
+                    podcastTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val date = formatEpisodeDate(episode.publishedAt, episode.pubDate)
+            if (date.isNotBlank()) {
+                Text(
+                    date,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         Icon(
             Icons.Filled.PlayCircle,

@@ -139,9 +139,7 @@ private fun LatestContent(
 
         is LatestUi.Ready -> {
             val scope = rememberCoroutineScope()
-            val activeDownloads by app.downloads.active.collectAsState()
             val completedDownloads by app.downloads.completed.collectAsState()
-            val playlists by app.playlist.playlists.collectAsState()
             var pickerEntry by remember { mutableStateOf<PlaylistEntry?>(null) }
 
             pickerEntry?.let { entry ->
@@ -154,27 +152,10 @@ private fun LatestContent(
 
             LazyColumn(Modifier.fillMaxSize()) {
                 items(state.episodes, key = { it.id }) { episode ->
-                    val downloadKey = app.downloads.key(episode.libraryItemId, episode.id)
-                    val downloadUi = when {
-                        completedDownloads.any {
-                            it.itemId == episode.libraryItemId && it.episodeId == episode.id
-                        } -> DownloadUi.Done
-
-                        activeDownloads.containsKey(downloadKey) ->
-                            DownloadUi.InProgress(activeDownloads[downloadKey]?.fraction ?: 0f)
-
-                        else -> DownloadUi.None
-                    }
                     val podcastTitle = state.podcastTitles[episode.libraryItemId] ?: ""
                     val durationSec = (episode.audioTrack?.duration ?: episode.audioFile?.duration ?: 0.0)
-                    val isDownloaded = downloadUi is DownloadUi.Done
-                    val addToPlaylist = {
-                        pickerEntry = PlaylistEntry(
-                            itemId = episode.libraryItemId,
-                            episodeId = episode.id,
-                            title = episode.title ?: "Episode",
-                            podcastTitle = podcastTitle,
-                        )
+                    val isDownloaded = completedDownloads.any {
+                        it.itemId == episode.libraryItemId && it.episodeId == episode.id
                     }
                     LatestEpisodeRow(
                         episode = episode,
@@ -183,22 +164,6 @@ private fun LatestContent(
                         coverUrl = app.repository.coverUrl(episode.libraryItemId),
                         isCurrent = playerState.mediaId == episodeMediaId(episode.libraryItemId, episode.id),
                         isPlaying = playerState.isPlaying,
-                        downloadUi = downloadUi,
-                        onDownload = {
-                            scope.launch(Dispatchers.IO) {
-                                runCatching {
-                                    val podcast = app.repository.podcast(episode.libraryItemId)
-                                    podcast.media.episodes.firstOrNull { it.id == episode.id }
-                                        ?.let { app.downloads.download(podcast, it) }
-                                }
-                            }
-                        },
-                        inPlaylist = playlists.any { playlist ->
-                            playlist.entries.any {
-                                it.itemId == episode.libraryItemId && it.episodeId == episode.id
-                            }
-                        },
-                        onTogglePlaylist = addToPlaylist,
                         actions = EpisodeMenuActions(
                             isFinished = state.progress[episode.id]?.isFinished == true,
                             isDownloaded = isDownloaded,
@@ -212,7 +177,14 @@ private fun LatestContent(
                                     durationSec = durationSec,
                                 )
                             },
-                            onAddToPlaylist = addToPlaylist,
+                            onAddToPlaylist = {
+                                pickerEntry = PlaylistEntry(
+                                    itemId = episode.libraryItemId,
+                                    episodeId = episode.id,
+                                    title = episode.title ?: "Episode",
+                                    podcastTitle = podcastTitle,
+                                )
+                            },
                             onGoToPodcast = { onOpenPodcast(episode.libraryItemId) },
                             onToggleDownload = {
                                 toggleEpisodeDownload(app, scope, episode.libraryItemId, episode.id, isDownloaded)
@@ -243,10 +215,6 @@ private fun LatestEpisodeRow(
     coverUrl: String,
     isCurrent: Boolean,
     isPlaying: Boolean,
-    downloadUi: DownloadUi,
-    onDownload: () -> Unit,
-    inPlaylist: Boolean,
-    onTogglePlaylist: () -> Unit,
     actions: EpisodeMenuActions,
     onClick: () -> Unit,
 ) {
@@ -310,49 +278,6 @@ private fun LatestEpisodeRow(
                         .fillMaxWidth()
                         .padding(top = 6.dp)
                         .height(3.dp),
-                )
-            }
-        }
-        Spacer(Modifier.width(4.dp))
-        IconButton(onClick = onTogglePlaylist) {
-            Icon(
-                if (inPlaylist) Icons.Filled.PlaylistAddCheck else Icons.Filled.PlaylistAdd,
-                contentDescription = if (inPlaylist) "In playlist" else "Add to playlist",
-                tint = if (inPlaylist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        when (downloadUi) {
-            is DownloadUi.None -> IconButton(onClick = onDownload) {
-                Icon(
-                    Icons.Filled.Download,
-                    contentDescription = "Download",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            is DownloadUi.InProgress -> Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(48.dp),
-            ) {
-                if (downloadUi.fraction > 0f) {
-                    CircularProgressIndicator(
-                        progress = { downloadUi.fraction },
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                }
-            }
-
-            is DownloadUi.Done -> Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    Icons.Filled.DownloadDone,
-                    contentDescription = "Downloaded",
-                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
         }
