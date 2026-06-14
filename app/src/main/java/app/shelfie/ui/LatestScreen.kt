@@ -139,6 +139,7 @@ private fun LatestContent(
         is LatestUi.Ready -> {
             val scope = rememberCoroutineScope()
             val completedDownloads by app.downloads.completed.collectAsState()
+            val activeDownloads by app.downloads.active.collectAsState()
             var pickerEntry by remember { mutableStateOf<PlaylistEntry?>(null) }
             var selectMode by remember { mutableStateOf(false) }
             var selectedIds by remember { mutableStateOf(emptySet<String>()) }
@@ -203,6 +204,7 @@ private fun LatestContent(
                             progress = state.progress[episode.id],
                             podcastTitle = podcastTitle,
                             coverUrl = app.repository.coverUrl(episode.libraryItemId),
+                            downloadUi = downloadUiFor(app, activeDownloads, completedDownloads, episode.libraryItemId, episode.id),
                             isCurrent = playerState.mediaId == episodeMediaId(episode.libraryItemId, episode.id),
                             isPlaying = playerState.isPlaying,
                             selectMode = selectMode,
@@ -264,6 +266,7 @@ private fun LatestEpisodeRow(
     progress: EpisodeProgressUi?,
     podcastTitle: String,
     coverUrl: String,
+    downloadUi: DownloadUi,
     isCurrent: Boolean,
     isPlaying: Boolean,
     selectMode: Boolean,
@@ -300,6 +303,7 @@ private fun LatestEpisodeRow(
                 progressFraction = progress?.fraction ?: 0f,
                 completed = completed,
                 titleColor = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                downloadUi = downloadUi,
             )
             if (!selectMode) {
                 Spacer(Modifier.width(4.dp))

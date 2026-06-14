@@ -20,10 +20,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.RemoveDone
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -49,6 +51,8 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import app.shelfie.ShelfieApp
 import app.shelfie.data.PodcastEpisode
+import app.shelfie.download.ActiveDownload
+import app.shelfie.download.DownloadedEpisode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,6 +74,7 @@ fun RowScope.EpisodeRowContent(
     progressFraction: Float,
     completed: Boolean,
     titleColor: Color = Color.Unspecified,
+    downloadUi: DownloadUi = DownloadUi.None,
 ) {
     CoverImage(
         model = coverUrl,
@@ -109,6 +114,51 @@ fun RowScope.EpisodeRowContent(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        when (val d = downloadUi) {
+            is DownloadUi.InProgress -> {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (d.fraction > 0f) {
+                        CircularProgressIndicator(
+                            progress = { d.fraction },
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (d.fraction > 0f) "Downloading ${(d.fraction * 100).toInt()}%" else "Downloading…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+
+            DownloadUi.Done -> {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.DownloadDone,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Downloaded",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+
+            DownloadUi.None -> {}
         }
         if (progressFraction > 0.01f && !completed) {
             Spacer(Modifier.height(6.dp))
@@ -319,6 +369,22 @@ fun bulkDownload(
                 }
             }
         }
+    }
+}
+
+/** Current download state for an episode, from the active/completed flows. */
+fun downloadUiFor(
+    app: ShelfieApp,
+    active: Map<String, ActiveDownload>,
+    completed: List<DownloadedEpisode>,
+    itemId: String,
+    episodeId: String,
+): DownloadUi {
+    val key = app.downloads.key(itemId, episodeId)
+    return when {
+        completed.any { it.itemId == itemId && it.episodeId == episodeId } -> DownloadUi.Done
+        active.containsKey(key) -> DownloadUi.InProgress(active[key]?.fraction ?: 0f)
+        else -> DownloadUi.None
     }
 }
 

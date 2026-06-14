@@ -97,6 +97,7 @@ fun PlaylistScreen(
     val scope = rememberCoroutineScope()
     val playlists by app.playlist.playlists.collectAsState()
     val downloaded by app.downloads.completed.collectAsState()
+    val activeDownloads by app.downloads.active.collectAsState()
     val progressRevision by app.repository.progressRevision.collectAsState()
     var selectedId by rememberSaveable { mutableStateOf(DOWNLOADED_PLAYLIST_ID) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -293,6 +294,7 @@ fun PlaylistScreen(
                     coverUrl = app.repository.coverUrl(entry.itemId),
                     isCurrent = playerState.mediaId == episodeMediaId(entry.itemId, entry.episodeId),
                     meta = meta,
+                    downloadUi = downloadUiFor(app, activeDownloads, downloaded, entry.itemId, entry.episodeId),
                     removable = selectedId != DOWNLOADED_PLAYLIST_ID,
                     actions = EpisodeMenuActions(
                         isFinished = meta?.isFinished == true,
@@ -661,6 +663,7 @@ private fun PlaylistRow(
     coverUrl: String,
     isCurrent: Boolean,
     meta: PlaylistRowMeta?,
+    downloadUi: DownloadUi,
     removable: Boolean,
     actions: EpisodeMenuActions,
     onClick: () -> Unit,
@@ -689,6 +692,7 @@ private fun PlaylistRow(
                 progressFraction = fraction,
                 completed = completed,
                 titleColor = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                downloadUi = downloadUi,
             )
             if (removable) {
                 IconButton(onClick = onRemove) {

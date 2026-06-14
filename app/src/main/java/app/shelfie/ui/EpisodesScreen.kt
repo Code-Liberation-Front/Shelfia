@@ -123,6 +123,7 @@ fun EpisodesScreen(
         is EpisodesUi.Ready -> {
             val scope = rememberCoroutineScope()
             val completedDownloads by app.downloads.completed.collectAsState()
+            val activeDownloads by app.downloads.active.collectAsState()
             var pickerEntry by remember { mutableStateOf<PlaylistEntry?>(null) }
             var selectMode by remember { mutableStateOf(false) }
             var selectedIds by remember { mutableStateOf(emptySet<String>()) }
@@ -216,6 +217,7 @@ fun EpisodesScreen(
                     EpisodeRow(
                         row = row,
                         coverUrl = app.repository.coverUrl(itemId),
+                        downloadUi = downloadUiFor(app, activeDownloads, completedDownloads, itemId, row.episode.id),
                         selectMode = selectMode,
                         selected = row.episode.id in selectedIds,
                         onToggleSelect = {
@@ -364,6 +366,7 @@ private fun TrackRow(
 private fun EpisodeRow(
     row: EpisodeRowData,
     coverUrl: String,
+    downloadUi: DownloadUi,
     selectMode: Boolean,
     selected: Boolean,
     onToggleSelect: () -> Unit,
@@ -401,6 +404,7 @@ private fun EpisodeRow(
                 progressFraction = row.progressFraction,
                 completed = completed,
                 titleColor = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                downloadUi = downloadUi,
             )
             if (!selectMode) {
                 Spacer(Modifier.width(4.dp))

@@ -64,6 +64,7 @@ fun SearchScreen(
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val completedDownloads by app.downloads.completed.collectAsState()
+    val activeDownloads by app.downloads.active.collectAsState()
     var pickerEntry by remember { mutableStateOf<PlaylistEntry?>(null) }
 
     pickerEntry?.let { entry ->
@@ -163,6 +164,7 @@ fun SearchScreen(
                                 episode = episode,
                                 podcastTitle = podcast.media.metadata.title ?: "",
                                 coverUrl = app.repository.coverUrl(itemId),
+                                downloadUi = downloadUiFor(app, activeDownloads, completedDownloads, itemId, episode.id),
                                 actions = EpisodeMenuActions(
                                     isFinished = false,
                                     isDownloaded = isDownloaded,
@@ -247,6 +249,7 @@ private fun EpisodeResultRow(
     episode: PodcastEpisode,
     podcastTitle: String,
     coverUrl: String,
+    downloadUi: DownloadUi,
     actions: EpisodeMenuActions,
     onClick: () -> Unit,
 ) {
@@ -271,6 +274,7 @@ private fun EpisodeResultRow(
                 dateLine = dateLine,
                 progressFraction = 0f,
                 completed = false,
+                downloadUi = downloadUi,
             )
             Icon(
                 Icons.Filled.PlayCircle,
