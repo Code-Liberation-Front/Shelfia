@@ -320,7 +320,6 @@ fun PlaylistScreen(
                         isCurrent = playerState.mediaId == episodeMediaId(entry.itemId, entry.episodeId),
                         meta = meta,
                         downloadUi = downloadUiFor(app, activeDownloads, downloaded, entry.itemId, entry.episodeId),
-                        removable = selectedId != DOWNLOADED_PLAYLIST_ID,
                         actions = EpisodeMenuActions(
                             isFinished = meta?.isFinished == true,
                             isDownloaded = isDownloaded,
@@ -339,6 +338,11 @@ fun PlaylistScreen(
                             onToggleDownload = {
                                 toggleEpisodeDownload(app, scope, entry.itemId, entry.episodeId, isDownloaded)
                             },
+                            onRemoveFromPlaylist = if (reorderable) {
+                                { app.playlist.removeFrom(selectedId, entry.itemId, entry.episodeId) }
+                            } else {
+                                null
+                            },
                         ),
                         reorderHandle = if (reorderable) {
                             {
@@ -353,7 +357,6 @@ fun PlaylistScreen(
                             null
                         },
                         onClick = { controller?.playEntries(displayRows, index) },
-                        onRemove = { app.playlist.removeFrom(selectedId, entry.itemId, entry.episodeId) },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 }
@@ -702,11 +705,9 @@ private fun PlaylistRow(
     isCurrent: Boolean,
     meta: PlaylistRowMeta?,
     downloadUi: DownloadUi,
-    removable: Boolean,
     actions: EpisodeMenuActions,
     reorderHandle: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
-    onRemove: () -> Unit,
 ) {
     val fraction = meta?.fraction ?: 0f
     val completed = isNearlyComplete(fraction, meta?.isFinished == true)
@@ -733,15 +734,6 @@ private fun PlaylistRow(
                 titleColor = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified,
                 downloadUi = downloadUi,
             )
-            if (removable) {
-                IconButton(onClick = onRemove) {
-                    Icon(
-                        Icons.Filled.PlaylistRemove,
-                        contentDescription = "Remove from playlist",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
             reorderHandle?.invoke()
         }
     }

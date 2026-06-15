@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.PlaylistRemove
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.RemoveDone
 import androidx.compose.material.icons.filled.RestartAlt
@@ -182,6 +183,8 @@ class EpisodeMenuActions(
     /** When null, the "Go to podcast" entry is hidden (e.g. already on it). */
     val onGoToPodcast: (() -> Unit)?,
     val onToggleDownload: () -> Unit,
+    /** When non-null, a "Remove from playlist" entry is shown (playlist screen). */
+    val onRemoveFromPlaylist: (() -> Unit)? = null,
 )
 
 /**
@@ -268,6 +271,16 @@ fun EpisodeLongPressBox(
                     actions.onToggleDownload()
                 },
             )
+            actions.onRemoveFromPlaylist?.let { remove ->
+                DropdownMenuItem(
+                    text = { Text("Remove from playlist") },
+                    leadingIcon = { Icon(Icons.Filled.PlaylistRemove, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        remove()
+                    },
+                )
+            }
         }
     }
 }
