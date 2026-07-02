@@ -72,7 +72,11 @@ sealed interface DownloadUi {
 private sealed interface EpisodesUi {
     data object Loading : EpisodesUi
     data class Error(val message: String) : EpisodesUi
-    data class Ready(val podcast: LibraryItemExpanded, val episodes: List<EpisodeRowData>) : EpisodesUi
+    data class Ready(
+        val podcast: LibraryItemExpanded,
+        val episodes: List<EpisodeRowData>,
+        val bookFinished: Boolean = false,
+    ) : EpisodesUi
 }
 
 @Composable
@@ -100,7 +104,13 @@ fun EpisodesScreen(
                             isFinished = progress?.isFinished == true,
                         )
                     }
-                EpisodesUi.Ready(podcast, rows)
+                // Audiobook/MP3 items have a single whole-item progress.
+                val bookFinished = if (podcast.media.episodes.isEmpty() && podcast.media.tracks.isNotEmpty()) {
+                    runCatching { app.repository.bookProgress(itemId)?.isFinished == true }.getOrDefault(false)
+                } else {
+                    false
+                }
+                EpisodesUi.Ready(podcast, rows, bookFinished)
             } catch (e: Exception) {
                 EpisodesUi.Error(e.message ?: "Failed to load episodes")
             }
@@ -188,14 +198,30 @@ fun EpisodesScreen(
                         )
                     }
                 }
-                // Audiobook/MP3 items have tracks instead of episodes.
+                // Audiobook/MP3 items have tracks instead of episodes; their
+                // progress (and the long-press menu) is for the whole item.
                 if (state.episodes.isEmpty() && state.podcast.media.tracks.isNotEmpty()) {
+                    val bookDuration = state.podcast.media.tracks.sumOf { it.duration }
                     itemsIndexed(state.podcast.media.tracks) { index, track ->
                         TrackRow(
                             title = track.title ?: "Part ${index + 1}",
                             durationSec = track.duration.toLong(),
                             isCurrent = playerState.mediaId == trackMediaId(itemId, index),
                             isPlaying = playerState.isPlaying,
+                            actions = EpisodeMenuActions(
+                                isFinished = state.bookFinished,
+                                isDownloaded = false,
+                                onResetProgress = {
+                                    resetEpisodeProgress(app, scope, itemId, "", bookDuration)
+                                },
+                                onToggleFinished = {
+                                    setEpisodeFinished(
+                                        app, scope, itemId, "",
+                                        finished = !state.bookFinished,
+                                        durationSec = bookDuration,
+                                    )
+                                },
+                            ),
                             onClick = {
                                 controller?.let { c ->
                                     if (playerState.mediaId == trackMediaId(itemId, index)) {
@@ -325,40 +351,42 @@ private fun TrackRow(
     durationSec: Long,
     isCurrent: Boolean,
     isPlaying: Boolean,
+    actions: EpisodeMenuActions,
     onClick: () -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val duration = formatDuration(durationSec)
-            if (duration.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
+    EpisodeLongPressBox(onClick = onClick, actions = actions, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    duration,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                val duration = formatDuration(durationSec)
+                if (duration.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        duration,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
+            Spacer(Modifier.width(12.dp))
+            Icon(
+                if (isCurrent && isPlaying) Icons.Filled.PauseCircle else Icons.Filled.PlayCircle,
+                contentDescription = if (isCurrent && isPlaying) "Pause" else "Play",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp),
+            )
         }
-        Spacer(Modifier.width(12.dp))
-        Icon(
-            if (isCurrent && isPlaying) Icons.Filled.PauseCircle else Icons.Filled.PlayCircle,
-            contentDescription = if (isCurrent && isPlaying) "Pause" else "Play",
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(36.dp),
-        )
     }
 }
 
