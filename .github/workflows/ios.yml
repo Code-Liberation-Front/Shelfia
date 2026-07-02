@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+    # Validation builds while the iOS app is developed on this branch.
+    branches:
+      - ios
   workflow_dispatch:
 
 permissions:
