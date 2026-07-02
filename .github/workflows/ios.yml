@@ -42,7 +42,12 @@ jobs:
         if: env.ASC_KEY_P8 != ''
         run: |
           mkdir -p ~/private_keys
-          echo "$ASC_KEY_P8" | base64 -d > ~/private_keys/AuthKey_$ASC_KEY_ID.p8
+          # The secret may hold the .p8 either verbatim (PEM text) or base64-encoded.
+          if [[ "$ASC_KEY_P8" == *"BEGIN PRIVATE KEY"* ]]; then
+            printf '%s\n' "$ASC_KEY_P8" > ~/private_keys/AuthKey_$ASC_KEY_ID.p8
+          else
+            echo "$ASC_KEY_P8" | base64 -d > ~/private_keys/AuthKey_$ASC_KEY_ID.p8
+          fi
 
           xcodebuild archive \
             -project ios/Shelfie.xcodeproj \
