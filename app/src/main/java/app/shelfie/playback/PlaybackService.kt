@@ -29,6 +29,7 @@ import app.shelfie.data.BookTrack
 import app.shelfie.data.LibraryItemExpanded
 import app.shelfie.data.LibraryItemSummary
 import app.shelfie.data.PodcastEpisode
+import app.shelfie.playlist.PlaylistEntry
 import app.shelfie.ui.MainActivity
 import com.google.android.gms.cast.framework.CastContext
 import com.google.common.collect.ImmutableList
@@ -47,9 +48,16 @@ import kotlinx.coroutines.withContext
 private const val ROOT_ID = "root"
 private const val CONTINUE_ID = "continue"
 private const val PODCASTS_ID = "podcasts"
+private const val PLAYLISTS_ID = "playlists"
+private const val DOWNLOADS_ID = "downloads"
 private const val PODCAST_PREFIX = "podcast:"
+private const val PLAYLIST_PREFIX = "playlist:"
 private const val EPISODE_PREFIX = "episode:"
 private const val TRACK_PREFIX = "track:"
+// Browse id for an episode shown inside a playlist; tapping it plays the whole
+// playlist as a queue. The queued items still use plain EPISODE_PREFIX ids so
+// progress reporting works.
+private const val PLAYLIST_EP_PREFIX = "playlistep:"
 
 // Extras carried on audiobook track items for progress reporting.
 private const val EXTRA_TRACK_START_OFFSET = "app.shelfie.trackStartOffset"
@@ -113,15 +121,21 @@ class PlaybackService : MediaLibraryService() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // Pin each skip action to an explicit slot so surfaces that place
+        // buttons by slot (Android Auto) keep back-10 on the left and
+        // forward-30 on the right. Without slots, Auto orders the two custom
+        // actions by its own heuristics and renders them flipped.
         val skipBackButton = CommandButton.Builder()
             .setDisplayName("Back 10 seconds")
             .setIconResId(R.drawable.ic_skip_back_10)
             .setSessionCommand(SessionCommand(COMMAND_SKIP_BACK, Bundle.EMPTY))
+            .setSlots(CommandButton.SLOT_BACK)
             .build()
         val skipForwardButton = CommandButton.Builder()
             .setDisplayName("Forward 30 seconds")
             .setIconResId(R.drawable.ic_skip_forward_30)
             .setSessionCommand(SessionCommand(COMMAND_SKIP_FORWARD, Bundle.EMPTY))
+            .setSlots(CommandButton.SLOT_FORWARD)
             .build()
         mediaSession = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(sessionActivity)
@@ -379,6 +393,15 @@ class PlaybackService : MediaLibraryService() {
                             parentId == PODCASTS_ID ->
                                 repo.podcasts().map { it.toBrowsableItem() }
 
+                            // Downloads and Playlists read in-memory state, so they
+                            // browse and (for downloaded items) play fully offline.
+                            parentId == DOWNLOADS_ID -> downloadedItems()
+
+                            parentId == PLAYLISTS_ID -> playlistFolders()
+
+                            parentId.startsWith(PLAYLIST_PREFIX) ->
+                                playlistEpisodes(parentId.removePrefix(PLAYLIST_PREFIX))
+
                             parentId.startsWith(PODCAST_PREFIX) -> {
                                 val itemId = parentId.removePrefix(PODCAST_PREFIX)
                                 val podcast = repo.podcast(itemId)
@@ -473,10 +496,15 @@ class PlaybackService : MediaLibraryService() {
                     val voiceQuery = mediaItems
                         .firstOrNull { !it.requestMetadata.searchQuery.isNullOrBlank() }
                         ?.requestMetadata?.searchQuery
+                    val playlistIds = mediaItems.filter { it.mediaId.startsWith(PLAYLIST_EP_PREFIX) }
                     val episodeIds = mediaItems.filter { it.mediaId.startsWith(EPISODE_PREFIX) }
                     val trackIds = mediaItems.filter { it.mediaId.startsWith(TRACK_PREFIX) }
 
                     when {
+                        // Episode tapped inside a playlist: queue the whole playlist.
+                        playlistIds.isNotEmpty() ->
+                            playlistQueueFor(playlistIds[0].mediaId, startPositionMs)
+
                         // Audiobook track tapped: queue the whole book at that track.
                         trackIds.isNotEmpty() ->
                             bookQueueFor(trackIds[0].mediaId, startPositionMs)
@@ -534,6 +562,16 @@ class PlaybackService : MediaLibraryService() {
             id = PODCASTS_ID,
             title = "Podcasts",
             extras = Bundle().apply { putInt(EXTRA_STYLE_BROWSABLE, STYLE_GRID) },
+        ),
+        folderItem(
+            id = PLAYLISTS_ID,
+            title = "Playlists",
+            extras = Bundle().apply { putInt(EXTRA_STYLE_BROWSABLE, STYLE_LIST) },
+        ),
+        folderItem(
+            id = DOWNLOADS_ID,
+            title = "Downloads",
+            extras = Bundle().apply { putInt(EXTRA_STYLE_PLAYABLE, STYLE_LIST) },
         ),
     )
 
@@ -655,9 +693,82 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private suspend fun resolveAny(mediaId: String): MediaItem? = when {
+        mediaId.startsWith(PLAYLIST_EP_PREFIX) -> {
+            val parts = mediaId.removePrefix(PLAYLIST_EP_PREFIX).split(":", limit = 3)
+            if (parts.size == 3) resolveEpisode("$EPISODE_PREFIX${parts[1]}:${parts[2]}") else null
+        }
+
         mediaId.startsWith(EPISODE_PREFIX) -> resolveEpisode(mediaId)
         mediaId.startsWith(TRACK_PREFIX) -> resolveTrack(mediaId)
         else -> null
+    }
+
+    /** Playlists shown in Android Auto (user-curated playlists). */
+    private fun playlistFolders(): List<MediaItem> =
+        app.playlist.playlists.value.map { playlist ->
+            folderItem(
+                id = "$PLAYLIST_PREFIX${playlist.id}",
+                title = playlist.name,
+                extras = Bundle().apply { putInt(EXTRA_STYLE_PLAYABLE, STYLE_LIST) },
+            )
+        }
+
+    /** Episodes of a playlist as browse items that play the whole playlist on tap. */
+    private fun playlistEpisodes(playlistId: String): List<MediaItem> =
+        playlistEntriesFor(playlistId).map { entry -> playlistEntryItem(playlistId, entry) }
+
+    private fun playlistEntriesFor(playlistId: String): List<PlaylistEntry> =
+        app.playlist.playlists.value.firstOrNull { it.id == playlistId }?.entries ?: emptyList()
+
+    private fun playlistEntryItem(playlistId: String, entry: PlaylistEntry): MediaItem =
+        MediaItem.Builder()
+            .setMediaId("$PLAYLIST_EP_PREFIX$playlistId:${entry.itemId}:${entry.episodeId}")
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(entry.title)
+                    .setArtist(entry.podcastTitle)
+                    .setAlbumTitle(entry.podcastTitle)
+                    .setArtworkUri(Uri.parse(repo.coverUrl(entry.itemId)))
+                    .setIsBrowsable(false)
+                    .setIsPlayable(true)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
+                    .build(),
+            )
+            .build()
+
+    /** Downloaded episodes, newest first, playable offline straight from disk. */
+    private fun downloadedItems(): List<MediaItem> =
+        app.downloads.completed.value
+            .sortedByDescending { it.downloadedAt }
+            .mapNotNull { downloadedEpisodeItem(it.itemId, it.episodeId) }
+
+    /**
+     * Builds the queue for an episode tapped inside a playlist: the whole
+     * playlist in order, starting at the tapped entry. Queued items use plain
+     * episode ids (resolving to the downloaded copy when offline).
+     */
+    private suspend fun playlistQueueFor(
+        mediaId: String,
+        startPositionMs: Long,
+    ): MediaSession.MediaItemsWithStartPosition {
+        val parts = mediaId.removePrefix(PLAYLIST_EP_PREFIX).split(":", limit = 3)
+        if (parts.size != 3) {
+            return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        }
+        val entries = playlistEntriesFor(parts[0])
+        val queue = entries.mapNotNull { entry ->
+            resolveEpisode("$EPISODE_PREFIX${entry.itemId}:${entry.episodeId}")
+        }
+        if (queue.isEmpty()) {
+            return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        }
+        val tappedMediaId = "$EPISODE_PREFIX${parts[1]}:${parts[2]}"
+        val index = queue.indexOfFirst { it.mediaId == tappedMediaId }.coerceAtLeast(0)
+        var position = startPositionMs
+        if (position == C.TIME_UNSET) {
+            position = savedPositionMs(queue[index].mediaId)
+        }
+        return MediaSession.MediaItemsWithStartPosition(queue, index, position)
     }
 
     /** Turns a "track:{itemId}:{index}" media id into a fully playable MediaItem. */
