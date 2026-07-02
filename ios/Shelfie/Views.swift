@@ -267,12 +267,12 @@ struct LatestView: View {
     }
 
     private func selectedEntries() -> [PlaylistEntry] {
-        state.latest.filter { selection.contains($0.id) }.map {
+        state.latest.filter { selection.contains($0.id) }.map { episode in
             PlaylistEntry(
-                itemId: $0.libraryItemId ?? "",
-                episodeId: $0.id,
-                title: $0.title ?? "Episode",
-                podcastTitle: state.podcasts.first { p in p.id == $0.libraryItemId }?.title ?? ""
+                itemId: episode.libraryItemId ?? "",
+                episodeId: episode.id,
+                title: episode.title ?? "Episode",
+                podcastTitle: state.podcasts.first { $0.id == episode.libraryItemId }?.title ?? ""
             )
         }
     }
