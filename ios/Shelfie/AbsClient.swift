@@ -1,83 +1,52 @@
+import CryptoKit
 import Foundation
-
-// MARK: - Models (Audiobookshelf REST API)
-
-struct LoginResponse: Codable { let user: AbsUser }
-struct AbsUser: Codable {
-    let id: String
-    let token: String
-    let username: String?
-    let mediaProgress: [MediaProgress]?
-}
-
-struct MediaProgress: Codable {
-    let libraryItemId: String?
-    let episodeId: String?
-    let duration: Double?
-    let progress: Double?
-    let currentTime: Double?
-    let isFinished: Bool?
-    let lastUpdate: Double?
-}
-
-struct LibrariesResponse: Codable { let libraries: [AbsLibrary] }
-struct AbsLibrary: Codable { let id: String; let name: String?; let mediaType: String? }
-
-struct ItemsResponse: Codable { let results: [ItemSummary] }
-struct ItemSummary: Codable, Identifiable {
-    let id: String
-    let media: SummaryMedia?
-    var title: String { media?.metadata?.title ?? "Podcast" }
-}
-struct SummaryMedia: Codable { let metadata: MetaData? }
-struct MetaData: Codable { let title: String?; let author: String?; let authorName: String? }
-
-struct ItemExpanded: Codable {
-    let id: String
-    let media: ExpandedMedia?
-    var title: String { media?.metadata?.title ?? "Podcast" }
-}
-struct ExpandedMedia: Codable { let metadata: MetaData?; let episodes: [Episode]? }
-
-struct Episode: Codable, Identifiable {
-    let id: String
-    let libraryItemId: String?
-    let title: String?
-    let publishedAt: Double?
-    let audioTrack: AudioTrack?
-    let audioFile: AudioFile?
-    var durationSec: Double { audioTrack?.duration ?? audioFile?.duration ?? 0 }
-}
-struct AudioTrack: Codable { let contentUrl: String?; let duration: Double? }
-struct AudioFile: Codable { let duration: Double? }
-
-struct ProgressUpdate: Codable {
-    let currentTime: Double
-    let duration: Double
-    let progress: Double
-    let isFinished: Bool
-}
-
-// MARK: - HTTP client
 
 struct AbsError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
 
+/**
+ HTTP client for the Audiobookshelf REST API, mirroring the Android
+ AbsApi/AbsRepository pair: Bearer-token auth for JSON endpoints, `?token=`
+ query auth for media URLs, and a disk JSON cache so reads keep working
+ offline.
+ */
 final class AbsClient {
     var serverUrl: String = ""
     var token: String = ""
 
     var isConfigured: Bool { !serverUrl.isEmpty && !token.isEmpty }
 
-    private func request(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
-        guard let url = URL(string: serverUrl + path) else {
+    private let cacheDir: URL = {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("apicache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    static func normalize(_ input: String) -> String {
+        var s = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !s.hasPrefix("http://") && !s.hasPrefix("https://") { s = "https://" + s }
+        while s.hasSuffix("/") { s.removeLast() }
+        return s
+    }
+
+    // MARK: Raw requests
+
+    private func request(
+        _ path: String,
+        method: String = "GET",
+        body: Data? = nil,
+        server: String? = nil,
+        authorized: Bool = true
+    ) async throws -> Data {
+        guard let url = URL(string: (server ?? serverUrl) + path) else {
             throw AbsError(message: "Invalid server URL")
         }
         var req = URLRequest(url: url)
         req.httpMethod = method
-        if !token.isEmpty {
+        if authorized && !token.isEmpty {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let body {
@@ -95,49 +64,182 @@ final class AbsClient {
         try JSONDecoder().decode(T.self, from: try await request(path))
     }
 
-    static func normalize(_ input: String) -> String {
-        var s = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !s.hasPrefix("http://") && !s.hasPrefix("https://") { s = "https://" + s }
-        while s.hasSuffix("/") { s.removeLast() }
-        return s
+    /** GET that falls back to the last successful on-disk response when offline. */
+    private func getCached<T: Codable>(_ path: String, cacheKey: String) async throws -> T {
+        do {
+            let data = try await request(path)
+            let value = try JSONDecoder().decode(T.self, from: data)
+            try? data.write(to: cacheDir.appendingPathComponent(cacheKey))
+            return value
+        } catch {
+            if let data = try? Data(contentsOf: cacheDir.appendingPathComponent(cacheKey)),
+               let value = try? JSONDecoder().decode(T.self, from: data) {
+                return value
+            }
+            throw error
+        }
+    }
+
+    func clearCache() {
+        try? FileManager.default.removeItem(at: cacheDir)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+    }
+
+    // MARK: Auth
+
+    func status(server: String) async throws -> ServerStatus {
+        let data = try await request("/status", server: Self.normalize(server), authorized: false)
+        return try JSONDecoder().decode(ServerStatus.self, from: data)
     }
 
     func login(server: String, username: String, password: String) async throws -> AbsUser {
-        serverUrl = Self.normalize(server)
-        token = ""
+        let normalized = Self.normalize(server)
         let body = try JSONSerialization.data(withJSONObject: ["username": username, "password": password])
-        let data = try await request("/login", method: "POST", body: body)
+        let data = try await request("/login", method: "POST", body: body, server: normalized, authorized: false)
         let response = try JSONDecoder().decode(LoginResponse.self, from: data)
-        token = response.user.token
+        serverUrl = normalized
+        token = response.user.token ?? ""
         return response.user
     }
 
-    func libraries() async throws -> [AbsLibrary] {
-        let r: LibrariesResponse = try await get("/api/libraries")
-        return r.libraries
+    // MARK: OIDC (Audiobookshelf mobile contract, matching the Android flow)
+
+    struct PendingOidc {
+        let server: String
+        let verifier: String
+        let cookies: String
     }
 
-    func items(libraryId: String) async throws -> [ItemSummary] {
-        let r: ItemsResponse = try await get("/api/libraries/\(libraryId)/items?limit=500&sort=media.metadata.title")
-        return r.results
+    /**
+     Requests /auth/openid without following the redirect, capturing the
+     identity-provider URL and state cookies. The cookies must be replayed on
+     /auth/openid/callback.
+     */
+    func startOidc(server: String) async throws -> (idpUrl: URL, pending: PendingOidc) {
+        let normalized = Self.normalize(server)
+        let verifier = Self.randomVerifier()
+        let challenge = Self.codeChallenge(verifier)
+        let redirect = "audiobookshelf://oauth"
+            .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        guard let url = URL(string:
+            "\(normalized)/auth/openid?response_type=code&client_id=Shelfie" +
+            "&redirect_uri=\(redirect)&code_challenge=\(challenge)&code_challenge_method=S256"
+        ) else { throw AbsError(message: "Invalid server URL") }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        let session = URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
+        let (body, response) = try await session.data(for: URLRequest(url: url))
+        guard let http = response as? HTTPURLResponse else {
+            throw AbsError(message: "Server did not respond")
+        }
+        guard (300...399).contains(http.statusCode) else {
+            let detail = String(data: body.prefix(200), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw AbsError(message: "Server did not start the sign-in flow (HTTP \(http.statusCode))"
+                + (detail.isEmpty ? "" : ": \(detail)"))
+        }
+        guard let location = http.value(forHTTPHeaderField: "Location") else {
+            throw AbsError(message: "Server did not return a sign-in redirect")
+        }
+        let resolved: String
+        if location.hasPrefix("http://") || location.hasPrefix("https://") {
+            resolved = location
+        } else if location.hasPrefix("/") {
+            resolved = normalized + location
+        } else {
+            resolved = normalized + "/" + location
+        }
+        guard let idpUrl = URL(string: resolved) else {
+            throw AbsError(message: "Server returned an invalid sign-in redirect")
+        }
+        // URLSession merges repeated Set-Cookie headers; keep only name=value pairs.
+        let setCookie = http.value(forHTTPHeaderField: "Set-Cookie") ?? ""
+        let cookies = setCookie
+            .components(separatedBy: ", ")
+            .map { $0.components(separatedBy: ";")[0] }
+            .filter { $0.contains("=") }
+            .joined(separator: "; ")
+        return (idpUrl, PendingOidc(server: normalized, verifier: verifier, cookies: cookies))
     }
 
-    func item(_ id: String) async throws -> ItemExpanded {
-        try await get("/api/items/\(id)?expanded=1")
+    /** Completes the OIDC flow with the code/state delivered via the redirect. */
+    func completeOidc(code: String, state: String, pending: PendingOidc) async throws -> AbsUser {
+        var components = URLComponents(string: "\(pending.server)/auth/openid/callback")!
+        components.queryItems = [
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_verifier", value: pending.verifier),
+        ]
+        var req = URLRequest(url: components.url!)
+        if !pending.cookies.isEmpty {
+            req.setValue(pending.cookies, forHTTPHeaderField: "Cookie")
+        }
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            throw AbsError(message: "Sign-in failed (HTTP \(http.statusCode))")
+        }
+        let login = try JSONDecoder().decode(LoginResponse.self, from: data)
+        serverUrl = pending.server
+        token = login.user.token ?? ""
+        return login.user
     }
+
+    private final class NoRedirect: NSObject, URLSessionTaskDelegate {
+        func urlSession(
+            _ session: URLSession, task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest,
+            completionHandler: @escaping (URLRequest?) -> Void
+        ) { completionHandler(nil) }
+    }
+
+    private static func randomVerifier() -> String {
+        var bytes = [UInt8](repeating: 0, count: 64)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64URLEncoded()
+    }
+
+    private static func codeChallenge(_ verifier: String) -> String {
+        Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded()
+    }
+
+    // MARK: API endpoints
 
     func me() async throws -> AbsUser {
         try await get("/api/me")
     }
 
-    func updateProgress(itemId: String, episodeId: String, currentTime: Double, duration: Double) async throws {
-        let progress = duration > 0 ? min(max(currentTime / duration, 0), 1) : 0
-        let update = ProgressUpdate(
-            currentTime: currentTime,
-            duration: duration,
-            progress: progress,
-            isFinished: progress > 0.98
+    func libraries() async throws -> [AbsLibrary] {
+        let r: LibrariesResponse = try await getCached("/api/libraries", cacheKey: "libraries.json")
+        return r.libraries
+    }
+
+    func items(libraryId: String) async throws -> [LibraryItemSummary] {
+        let r: LibraryItemsResponse = try await getCached(
+            "/api/libraries/\(libraryId)/items?limit=500&sort=media.metadata.title",
+            cacheKey: "items_\(libraryId).json"
         )
+        return r.results
+    }
+
+    func recentEpisodes(libraryId: String, limit: Int = 75) async throws -> [PodcastEpisode] {
+        let r: RecentEpisodesResponse = try await getCached(
+            "/api/libraries/\(libraryId)/recent-episodes?limit=\(limit)",
+            cacheKey: "latest_\(libraryId).json"
+        )
+        return r.episodes.sorted { ($0.publishedAt ?? 0) > ($1.publishedAt ?? 0) }
+    }
+
+    func item(_ id: String) async throws -> LibraryItemExpanded {
+        try await getCached("/api/items/\(id)?expanded=1", cacheKey: "item_\(id).json")
+    }
+
+    func listeningStats() async throws -> ListeningStats {
+        try await get("/api/me/listening-stats")
+    }
+
+    func updateEpisodeProgress(itemId: String, episodeId: String, update: ProgressUpdate) async throws {
         _ = try await request(
             "/api/me/progress/\(itemId)/\(episodeId)",
             method: "PATCH",
@@ -145,101 +247,44 @@ final class AbsClient {
         )
     }
 
+    func updateBookProgress(itemId: String, update: ProgressUpdate) async throws {
+        _ = try await request(
+            "/api/me/progress/\(itemId)",
+            method: "PATCH",
+            body: try JSONEncoder().encode(update)
+        )
+    }
+
+    // MARK: Media URLs (token as query parameter)
+
     func coverUrl(_ itemId: String) -> URL? {
         URL(string: "\(serverUrl)/api/items/\(itemId)/cover?token=\(token)")
     }
 
-    func streamUrl(_ episode: Episode) -> URL? {
-        guard let content = episode.audioTrack?.contentUrl else { return nil }
-        let sep = content.contains("?") ? "&" : "?"
-        return URL(string: "\(serverUrl)\(content)\(sep)token=\(token)")
+    func tokenized(_ contentUrl: String) -> URL? {
+        let sep = contentUrl.contains("?") ? "&" : "?"
+        return URL(string: "\(serverUrl)\(contentUrl)\(sep)token=\(token)")
+    }
+
+    func streamUrl(itemId: String, episode: PodcastEpisode) -> URL? {
+        if let content = episode.audioTrack?.contentUrl { return tokenized(content) }
+        if let ino = episode.audioFile?.ino, !ino.isEmpty {
+            return URL(string: "\(serverUrl)/api/items/\(itemId)/file/\(ino)?token=\(token)")
+        }
+        return nil
+    }
+
+    func trackUrl(_ track: BookTrack) -> URL? {
+        guard let content = track.contentUrl else { return nil }
+        return tokenized(content)
     }
 }
 
-// MARK: - App state
-
-@MainActor
-final class AppState: ObservableObject {
-    static let shared = AppState()
-
-    let client = AbsClient()
-    @Published var loggedIn = false
-    @Published var podcasts: [ItemSummary] = []
-    @Published var progressByKey: [String: MediaProgress] = [:]
-
-    private init() {
-        let defaults = UserDefaults.standard
-        if let server = defaults.string(forKey: "serverUrl"),
-           let token = defaults.string(forKey: "token"),
-           !server.isEmpty, !token.isEmpty {
-            client.serverUrl = server
-            client.token = token
-            loggedIn = true
-        }
-    }
-
-    func login(server: String, username: String, password: String) async throws {
-        _ = try await client.login(server: server, username: username, password: password)
-        UserDefaults.standard.set(client.serverUrl, forKey: "serverUrl")
-        UserDefaults.standard.set(client.token, forKey: "token")
-        loggedIn = true
-    }
-
-    func logout() {
-        UserDefaults.standard.removeObject(forKey: "serverUrl")
-        UserDefaults.standard.removeObject(forKey: "token")
-        client.serverUrl = ""
-        client.token = ""
-        podcasts = []
-        progressByKey = [:]
-        loggedIn = false
-    }
-
-    /** Loads the podcast library (first podcast library on the server) and progress. */
-    func refresh() async {
-        guard client.isConfigured else { return }
-        do {
-            let libs = try await client.libraries()
-            let lib = libs.first(where: { $0.mediaType == "podcast" }) ?? libs.first
-            if let lib {
-                podcasts = try await client.items(libraryId: lib.id)
-            }
-            await refreshProgress()
-        } catch {
-            // Keep whatever we have; UI shows cached state.
-        }
-    }
-
-    func refreshProgress() async {
-        guard let me = try? await client.me(), let entries = me.mediaProgress else { return }
-        var map: [String: MediaProgress] = [:]
-        for p in entries {
-            if let item = p.libraryItemId {
-                map["\(item):\(p.episodeId ?? "")"] = p
-            }
-        }
-        progressByKey = map
-    }
-
-    func progressFor(itemId: String, episodeId: String) -> MediaProgress? {
-        progressByKey["\(itemId):\(episodeId)"]
-    }
-
-    /** Unfinished episodes, most recently played first, resolved to podcast+episode. */
-    func continueListening(limit: Int = 10) async -> [(podcast: ItemExpanded, episode: Episode, progress: MediaProgress)] {
-        await refreshProgress()
-        let unfinished = progressByKey.values
-            .filter { ($0.isFinished != true) && (($0.currentTime ?? 0) > 0) && ($0.episodeId != nil) }
-            .sorted { ($0.lastUpdate ?? 0) > ($1.lastUpdate ?? 0) }
-            .prefix(limit)
-        var out: [(ItemExpanded, Episode, MediaProgress)] = []
-        for p in unfinished {
-            guard let itemId = p.libraryItemId, let episodeId = p.episodeId else { continue }
-            if let item = try? await client.item(itemId),
-               let episode = item.media?.episodes?.first(where: { $0.id == episodeId }) {
-                out.append((item, episode, p))
-            }
-        }
-        return out
+private extension Data {
+    func base64URLEncoded() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
