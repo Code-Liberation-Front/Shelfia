@@ -27,6 +27,10 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIBackgroundModes: [audio]
         ITSAppUsesNonExemptEncryption: false
+        # OIDC single sign-on redirect (Audiobookshelf mobile contract).
+        CFBundleURLTypes:
+          - CFBundleURLName: audiobookshelf-oauth
+            CFBundleURLSchemes: [audiobookshelf]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         # Self-hosted Audiobookshelf servers are often plain HTTP.

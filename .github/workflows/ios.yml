@@ -8,6 +8,11 @@ on:
     branches:
       - ios
   workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Upload to TestFlight (off = compile check only)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,7 +45,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Archive and upload to TestFlight
-        if: env.ASC_KEY_P8 != ''
+        if: env.ASC_KEY_P8 != '' && (github.event_name != 'workflow_dispatch' || inputs.upload)
         run: |
           mkdir -p ~/private_keys
           # The secret may hold the .p8 either verbatim (PEM text) or base64-encoded.
