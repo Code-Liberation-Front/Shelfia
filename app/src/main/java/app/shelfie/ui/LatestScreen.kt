@@ -72,18 +72,18 @@ fun LatestScreen(
     playerState: PlayerUiState,
     onOpenPodcast: (String) -> Unit,
 ) {
-    var refreshKey by remember { mutableIntStateOf(0) }
-    var isRefreshing by remember { mutableStateOf(false) }
     val progressRevision by app.repository.progressRevision.collectAsState()
-    val ui by produceState<LatestUi>(initialValue = LatestUi.Loading, refreshKey, progressRevision) {
-        val force = refreshKey > 0
+    val contentVersion by app.repository.contentVersion.collectAsState()
+    val refreshing by app.repository.refreshing.collectAsState()
+    val scope = rememberCoroutineScope()
+    val ui by produceState<LatestUi>(initialValue = LatestUi.Loading, contentVersion, progressRevision) {
         value = withContext(Dispatchers.IO) {
             try {
                 if (!app.repository.ensureConfigured()) {
                     LatestUi.Error("Not logged in")
                 } else {
-                    val episodes = app.repository.latestEpisodes(forceRefresh = force)
-                    val titles = app.repository.podcasts(forceRefresh = force)
+                    val episodes = app.repository.latestEpisodes()
+                    val titles = app.repository.podcasts()
                         .associate { it.id to (it.media.metadata.title ?: "") }
                     val progress = episodes.associate { episode ->
                         val saved = runCatching {
@@ -100,15 +100,11 @@ fun LatestScreen(
                 LatestUi.Error(e.message ?: "Failed to load latest episodes")
             }
         }
-        isRefreshing = false
     }
 
     PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            isRefreshing = true
-            refreshKey++
-        },
+        isRefreshing = refreshing,
+        onRefresh = { scope.launch { app.repository.refreshAll() } },
         modifier = Modifier.fillMaxSize(),
     ) {
         LatestContent(app, controller, playerState, onOpenPodcast, ui)

@@ -68,6 +68,39 @@ class AbsRepository(
     private val _progressRevision = MutableStateFlow(0)
     val progressRevision: StateFlow<Int> = _progressRevision.asStateFlow()
 
+    // Global content refresh. `contentVersion` is bumped after a full refresh so
+    // every screen re-reads the (updated) caches and shows the differences;
+    // `refreshing` drives the app-wide scrolling loading bar.
+    private val _contentVersion = MutableStateFlow(0)
+    val contentVersion: StateFlow<Int> = _contentVersion.asStateFlow()
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    /**
+     * Refreshes all top-level content into the caches, then bumps
+     * [contentVersion] so every screen reloads and shows the differences.
+     * Runs on launch and when the user manually triggers an update; no-op if a
+     * refresh is already in flight. Individual failures are ignored so one bad
+     * library (e.g. Latest on a non-podcast library) doesn't abort the rest.
+     */
+    suspend fun refreshAll() {
+        if (_refreshing.value) return
+        _refreshing.value = true
+        try {
+            withContext(Dispatchers.IO) {
+                if (!ensureConfigured()) return@withContext
+                runCatching { libraries(forceRefresh = true) }
+                runCatching { podcasts(forceRefresh = true) }
+                runCatching { recentlyAdded(forceRefresh = true) }
+                runCatching { continueListening(forceRefresh = true) }
+                runCatching { latestEpisodes(forceRefresh = true) }
+            }
+            _contentVersion.value += 1
+        } finally {
+            _refreshing.value = false
+        }
+    }
+
     private val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true

@@ -20,11 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import app.shelfie.ShelfieApp
 import app.shelfie.data.LibraryItemSummary
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private sealed interface PodcastsUi {
@@ -46,32 +46,29 @@ private sealed interface PodcastsUi {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PodcastsScreen(app: ShelfieApp, onOpenPodcast: (String) -> Unit) {
-    var refreshKey by remember { mutableIntStateOf(0) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    val ui by produceState<PodcastsUi>(initialValue = PodcastsUi.Loading, refreshKey) {
+    val contentVersion by app.repository.contentVersion.collectAsState()
+    val refreshing by app.repository.refreshing.collectAsState()
+    val scope = rememberCoroutineScope()
+    val ui by produceState<PodcastsUi>(initialValue = PodcastsUi.Loading, contentVersion) {
         value = withContext(Dispatchers.IO) {
             try {
                 if (!app.repository.ensureConfigured()) {
                     PodcastsUi.Error("Not logged in")
                 } else {
-                    PodcastsUi.Ready(app.repository.podcasts(forceRefresh = refreshKey > 0))
+                    PodcastsUi.Ready(app.repository.podcasts())
                 }
             } catch (e: Exception) {
                 PodcastsUi.Error(e.message ?: "Failed to load podcasts")
             }
         }
-        isRefreshing = false
     }
 
     PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            isRefreshing = true
-            refreshKey++
-        },
+        isRefreshing = refreshing,
+        onRefresh = { scope.launch { app.repository.refreshAll() } },
         modifier = Modifier.fillMaxSize(),
     ) {
-        PodcastsContent(app, onOpenPodcast, ui, onRetry = { refreshKey++ })
+        PodcastsContent(app, onOpenPodcast, ui, onRetry = { scope.launch { app.repository.refreshAll() } })
     }
 }
 

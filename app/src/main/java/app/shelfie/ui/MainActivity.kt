@@ -31,21 +31,25 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -198,6 +202,12 @@ fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
     val onTabScreen = BOTTOM_TABS.any { it.route == currentRoute }
     val isOnline by rememberIsOnline()
     var playerExpanded by rememberSaveable { mutableStateOf(false) }
+    val refreshing by app.repository.refreshing.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    // Refresh all content once on launch; caches serve the UI instantly and the
+    // differences are updated when this completes.
+    LaunchedEffect(Unit) { app.repository.refreshAll() }
 
     BackHandler(enabled = playerExpanded) { playerExpanded = false }
 
@@ -210,6 +220,8 @@ fun MainNavigation(app: ShelfieApp, controller: MediaController?) {
             onTabScreen = onTabScreen,
             currentRoute = currentRoute,
             isOnline = isOnline,
+            refreshing = refreshing,
+            onRefresh = { scope.launch { app.repository.refreshAll() } },
             onExpandPlayer = { playerExpanded = true },
         )
         // Apple Music-style full-screen player: slides up over everything,
@@ -237,6 +249,8 @@ private fun MainScaffold(
     onTabScreen: Boolean,
     currentRoute: String?,
     isOnline: Boolean,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onExpandPlayer: () -> Unit,
 ) {
     Scaffold(
@@ -245,11 +259,17 @@ private fun MainScaffold(
                 if (onTabScreen) {
                     ShelfieTopBar(
                         onSearch = { navController.navigate("search") { launchSingleTop = true } },
+                        onRefresh = onRefresh,
                         onSettings = { navController.navigate("settings") { launchSingleTop = true } },
                     )
                 }
                 if (!isOnline) {
                     OfflineBanner(padStatusBar = !onTabScreen)
+                }
+                // App-wide loading bar that scrolls across the top while content
+                // is being refreshed (on launch or a manual update).
+                if (refreshing) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
         },
@@ -370,7 +390,7 @@ private fun MainScaffold(
 }
 
 @Composable
-private fun ShelfieTopBar(onSearch: () -> Unit, onSettings: () -> Unit) {
+private fun ShelfieTopBar(onSearch: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -395,6 +415,9 @@ private fun ShelfieTopBar(onSearch: () -> Unit, onSettings: () -> Unit) {
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onSearch) {
             Icon(Icons.Filled.Search, contentDescription = "Search")
+        }
+        IconButton(onClick = onRefresh) {
+            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
         }
         CastButton(modifier = Modifier.size(44.dp))
         IconButton(onClick = onSettings) {

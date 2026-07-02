@@ -113,14 +113,16 @@ class PlaybackService : MediaLibraryService() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val skipBackButton = CommandButton.Builder()
+        // Use Media3's predefined skip icons so it knows the semantics and
+        // places back-10 and forward-30 in the correct slots on every surface
+        // (notification, lock screen, Android Auto) rather than as generic
+        // custom icons that could render in a flipped order.
+        val skipBackButton = CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
             .setDisplayName("Back 10 seconds")
-            .setIconResId(R.drawable.ic_skip_back_10)
             .setSessionCommand(SessionCommand(COMMAND_SKIP_BACK, Bundle.EMPTY))
             .build()
-        val skipForwardButton = CommandButton.Builder()
+        val skipForwardButton = CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_30)
             .setDisplayName("Forward 30 seconds")
-            .setIconResId(R.drawable.ic_skip_forward_30)
             .setSessionCommand(SessionCommand(COMMAND_SKIP_FORWARD, Bundle.EMPTY))
             .build()
         mediaSession = MediaLibrarySession.Builder(this, player, LibraryCallback())

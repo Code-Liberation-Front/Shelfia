@@ -72,6 +72,7 @@ import app.shelfie.ShelfieApp
 import app.shelfie.playlist.PlaylistEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val DOWNLOADED_PLAYLIST_ID = "__downloaded__"
@@ -102,22 +103,15 @@ fun PlaylistScreen(
     val downloaded by app.downloads.completed.collectAsState()
     val activeDownloads by app.downloads.active.collectAsState()
     val progressRevision by app.repository.progressRevision.collectAsState()
+    val contentVersion by app.repository.contentVersion.collectAsState()
+    val refreshing by app.repository.refreshing.collectAsState()
     var selectedId by rememberSaveable { mutableStateOf(DOWNLOADED_PLAYLIST_ID) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var addingToPlaylist by remember { mutableStateOf<String?>(null) }
     var pickerEntry by remember { mutableStateOf<PlaylistEntry?>(null) }
-    var isRefreshing by remember { mutableStateOf(false) }
 
     pickerEntry?.let { entry ->
         PlaylistPickerDialog(app = app, entry = entry, onDismiss = { pickerEntry = null })
-    }
-
-    // Playlists are local state; refresh is a quick visual confirmation.
-    LaunchedEffect(isRefreshing) {
-        if (isRefreshing) {
-            delay(500)
-            isRefreshing = false
-        }
     }
 
     // Fall back to the Downloaded playlist if the selected one was deleted.
@@ -150,7 +144,7 @@ fun PlaylistScreen(
     // Playlist entries only store title/podcast, so look up publish date and
     // listening progress for each row (cached, so this is cheap after the first
     // load and degrades gracefully offline).
-    val rowMeta by produceState(emptyMap<String, PlaylistRowMeta>(), rows, progressRevision) {
+    val rowMeta by produceState(emptyMap<String, PlaylistRowMeta>(), rows, progressRevision, contentVersion) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 val info = mutableMapOf<String, EpisodeInfo>()
@@ -183,8 +177,8 @@ fun PlaylistScreen(
     }
 
     PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = { isRefreshing = true },
+        isRefreshing = refreshing,
+        onRefresh = { scope.launch { app.repository.refreshAll() } },
         modifier = Modifier.fillMaxSize(),
     ) {
         Column(Modifier.fillMaxSize()) {

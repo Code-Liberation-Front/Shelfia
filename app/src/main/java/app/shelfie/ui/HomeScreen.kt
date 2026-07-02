@@ -42,6 +42,7 @@ import app.shelfie.data.AbsRepository
 import app.shelfie.data.LibraryItemSummary
 import app.shelfie.playlist.PlaylistEntry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private sealed interface HomeUi {
@@ -60,36 +61,32 @@ fun HomeScreen(
     controller: MediaController?,
     onOpenPodcast: (String) -> Unit,
 ) {
-    var refreshKey by remember { mutableIntStateOf(0) }
-    var isRefreshing by remember { mutableStateOf(false) }
     val progressRevision by app.repository.progressRevision.collectAsState()
-    val ui by produceState<HomeUi>(initialValue = HomeUi.Loading, refreshKey, progressRevision) {
-        val force = refreshKey > 0
+    val contentVersion by app.repository.contentVersion.collectAsState()
+    val refreshing by app.repository.refreshing.collectAsState()
+    val scope = rememberCoroutineScope()
+    // Read from cache (fast); the global refresh updates the cache and bumps
+    // contentVersion, which reloads this from the fresh data.
+    val ui by produceState<HomeUi>(initialValue = HomeUi.Loading, contentVersion, progressRevision) {
         value = withContext(Dispatchers.IO) {
             try {
                 if (!app.repository.ensureConfigured()) {
                     HomeUi.Error("Not logged in")
                 } else {
                     HomeUi.Ready(
-                        inProgress = app.repository.continueListening(limit = 12, forceRefresh = force),
-                        recentlyAdded = app.repository.recentlyAdded(forceRefresh = force),
+                        inProgress = app.repository.continueListening(limit = 12),
+                        recentlyAdded = app.repository.recentlyAdded(),
                     )
                 }
             } catch (e: Exception) {
                 HomeUi.Error(e.message ?: "Failed to load home")
             }
         }
-        // Reset here rather than observing ui: an identical refresh result would
-        // not change state and would leave the spinner stuck.
-        isRefreshing = false
     }
 
     PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            isRefreshing = true
-            refreshKey++
-        },
+        isRefreshing = refreshing,
+        onRefresh = { scope.launch { app.repository.refreshAll() } },
         modifier = Modifier.fillMaxSize(),
     ) {
         HomeContent(app, controller, onOpenPodcast, ui)
