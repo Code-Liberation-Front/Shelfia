@@ -95,3 +95,17 @@ Requirements: JDK 17+ and the Android SDK (API 35).
 ## License
 
 [MIT](LICENSE)
+
+## iOS (TestFlight + CarPlay)
+
+A native SwiftUI companion app lives in `ios/` (login, library, episode lists, Continue Listening, streaming playback with 10s/30s skips and speed control, progress sync, and a CarPlay audio app). CI builds it on a macOS runner (`.github/workflows/ios.yml`).
+
+One-time setup:
+
+1. **CarPlay entitlement** — apply at https://developer.apple.com/contact/carplay/ (category *Audio*). After Apple approves it for your App ID, uncomment the `com.apple.developer.carplay-audio` key in `ios/Shelfie/Shelfie.entitlements`.
+2. **App record** — register the bundle ID `com.shelfie.zbuddy` under Certificates → Identifiers, then create the app in App Store Connect (My Apps → **+**).
+3. **API key** — App Store Connect → Users and Access → Integrations → App Store Connect API → Team Keys → **+** (role: App Manager). Download the `.p8` once; note the Key ID and Issuer ID.
+4. **Repo secrets** — add `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` (base64 of the `.p8`), and `APPLE_TEAM_ID` (from Membership details).
+5. Run the **Build iOS** workflow (or push a `v*` tag). The signed build uploads to TestFlight automatically; add yourself as an internal tester in App Store Connect → TestFlight and install from the TestFlight app.
+
+Without the secrets, the workflow still compile-checks the app (unsigned).
