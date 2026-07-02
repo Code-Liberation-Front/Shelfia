@@ -30,7 +30,7 @@ struct LoginView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Shelfie").font(.largeTitle.bold())
+            Text("Shelfia").font(.largeTitle.bold())
             Text("Sign in to your Audiobookshelf server")
                 .foregroundStyle(.secondary)
             TextField("Server address", text: $server)
