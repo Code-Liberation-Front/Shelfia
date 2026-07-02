@@ -37,27 +37,25 @@ struct LoginView: View {
     @State private var presentationProvider = WebAuthPresentationProvider()
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Text("Shelfia").font(.largeTitle.bold())
-                Text("Sign in to your Audiobookshelf server")
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 16) {
+            Text("Shelfia").font(.largeTitle.bold())
+            Text("Sign in to your Audiobookshelf server")
+                .foregroundStyle(.secondary)
 
-                if serverStatus == nil {
-                    serverStep
-                } else {
-                    authStep
-                }
-
-                if let error {
-                    Text(error).foregroundStyle(.red).font(.footnote)
-                        .multilineTextAlignment(.center)
-                }
+            if serverStatus == nil {
+                serverStep
+            } else {
+                authStep
             }
-            .padding(24)
-            .frame(maxWidth: 480)
-            .frame(maxWidth: .infinity)
+
+            if let error {
+                Text(error).foregroundStyle(.red).font(.footnote)
+                    .multilineTextAlignment(.center)
+            }
         }
+        .padding(24)
+        .frame(maxWidth: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var serverStep: some View {
