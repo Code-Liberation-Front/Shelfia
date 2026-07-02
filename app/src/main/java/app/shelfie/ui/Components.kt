@@ -179,10 +179,12 @@ class EpisodeMenuActions(
     val isDownloaded: Boolean,
     val onResetProgress: () -> Unit,
     val onToggleFinished: () -> Unit,
-    val onAddToPlaylist: () -> Unit,
+    /** When null, the "Add to playlist" entry is hidden (e.g. audiobook tracks). */
+    val onAddToPlaylist: (() -> Unit)? = null,
     /** When null, the "Go to podcast" entry is hidden (e.g. already on it). */
-    val onGoToPodcast: (() -> Unit)?,
-    val onToggleDownload: () -> Unit,
+    val onGoToPodcast: (() -> Unit)? = null,
+    /** When null, the "Download" entry is hidden (e.g. audiobook tracks). */
+    val onToggleDownload: (() -> Unit)? = null,
     /** When non-null, a "Remove from playlist" entry is shown (playlist screen). */
     val onRemoveFromPlaylist: (() -> Unit)? = null,
 )
@@ -240,14 +242,16 @@ fun EpisodeLongPressBox(
                     actions.onToggleFinished()
                 },
             )
-            DropdownMenuItem(
-                text = { Text("Add to playlist") },
-                leadingIcon = { Icon(Icons.Filled.PlaylistAdd, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    actions.onAddToPlaylist()
-                },
-            )
+            actions.onAddToPlaylist?.let { addToPlaylist ->
+                DropdownMenuItem(
+                    text = { Text("Add to playlist") },
+                    leadingIcon = { Icon(Icons.Filled.PlaylistAdd, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        addToPlaylist()
+                    },
+                )
+            }
             actions.onGoToPodcast?.let { goToPodcast ->
                 DropdownMenuItem(
                     text = { Text("Go to podcast") },
@@ -258,19 +262,21 @@ fun EpisodeLongPressBox(
                     },
                 )
             }
-            DropdownMenuItem(
-                text = { Text(if (actions.isDownloaded) "Remove download" else "Download") },
-                leadingIcon = {
-                    Icon(
-                        if (actions.isDownloaded) Icons.Filled.DeleteOutline else Icons.Filled.Download,
-                        contentDescription = null,
-                    )
-                },
-                onClick = {
-                    menuOpen = false
-                    actions.onToggleDownload()
-                },
-            )
+            actions.onToggleDownload?.let { toggleDownload ->
+                DropdownMenuItem(
+                    text = { Text(if (actions.isDownloaded) "Remove download" else "Download") },
+                    leadingIcon = {
+                        Icon(
+                            if (actions.isDownloaded) Icons.Filled.DeleteOutline else Icons.Filled.Download,
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = {
+                        menuOpen = false
+                        toggleDownload()
+                    },
+                )
+            }
             actions.onRemoveFromPlaylist?.let { remove ->
                 DropdownMenuItem(
                     text = { Text("Remove from playlist") },

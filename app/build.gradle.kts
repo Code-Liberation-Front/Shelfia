@@ -14,8 +14,8 @@ android {
         applicationId = "com.shelfie.zbuddy"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.9.2"
+        versionCode = 20
+        versionName = "0.9.3"
     }
 
     // Shared, committed keystore so every CI build signs identically and
