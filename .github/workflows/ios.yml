@@ -14,7 +14,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    # App Store Connect requires the iOS 26 SDK (Xcode 26) since April 2026.
+    runs-on: macos-26
     env:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
