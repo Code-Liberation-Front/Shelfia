@@ -1,0 +1,40 @@
+name: Shelfie
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  Shelfie:
+    type: application
+    platform: iOS
+    sources: [Shelfie]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shelfie.zbuddy
+        MARKETING_VERSION: 0.9.3
+        CURRENT_PROJECT_VERSION: 1
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Shelfie/Shelfie.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.9"
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: Shelfie/Info.plist
+      properties:
+        CFBundleDisplayName: Shelfie
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIBackgroundModes: [audio]
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Self-hosted Audiobookshelf servers are often plain HTTP.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        # Only the CarPlay scene is declared; SwiftUI provides the device scene.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneConfigurationName: CarPlay
+                UISceneDelegateClassName: Shelfie.CarPlaySceneDelegate
