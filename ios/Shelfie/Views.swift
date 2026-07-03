@@ -4,28 +4,28 @@ import SwiftUI
 
 struct MainView: View {
     @EnvironmentObject var state: AppState
-    @StateObject private var player = PlayerManager.shared
     @StateObject private var router = Router.shared
 
     var body: some View {
         TabView(selection: $router.tab) {
             NavigationStack { rootScreen { HomeView() } }
+                .withMiniPlayer()
                 .tabItem { Label("Home", systemImage: "house") }
                 .tag(0)
             NavigationStack { rootScreen { LatestView() } }
+                .withMiniPlayer()
                 .tabItem { Label("Latest", systemImage: "clock") }
                 .tag(1)
             NavigationStack(path: $router.libraryPath) { rootScreen { LibraryView() } }
+                .withMiniPlayer()
                 .tabItem { Label("Library", systemImage: "square.grid.2x2") }
                 .tag(2)
             NavigationStack { PlaylistScreen().withRootToolbar() }
+                .withMiniPlayer()
                 .tabItem { Label("Playlist", systemImage: "list.bullet") }
                 .tag(3)
         }
         .environmentObject(router)
-        .safeAreaInset(edge: .bottom) {
-            if player.current != nil { MiniPlayerBar() }
-        }
         .overlay(alignment: .top) {
             if !state.isOnline { OfflineBanner() }
         }
@@ -62,6 +62,15 @@ private struct RootToolbar: ViewModifier {
 
 private extension View {
     func withRootToolbar() -> some View { modifier(RootToolbar()) }
+
+    /**
+     Pins the mini player inside the tab's content, so it floats above the
+     tab bar instead of covering it. MiniPlayerBar renders nothing while
+     idle, so this is safe to attach unconditionally.
+     */
+    func withMiniPlayer() -> some View {
+        safeAreaInset(edge: .bottom) { MiniPlayerBar() }
+    }
 }
 
 // MARK: - Home (Continue Listening + Recently Added carousels)
