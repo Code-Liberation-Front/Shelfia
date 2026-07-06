@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Cross-tab navigation (menu "Go to podcast" from any screen)
 
@@ -14,16 +15,55 @@ final class Router: ObservableObject {
     }
 }
 
+// MARK: - Cover art cache (memory + disk) so lists render instantly offline
+
+final class CoverCache {
+    static let shared = CoverCache()
+
+    private let memory = NSCache<NSString, UIImage>()
+    private let dir: URL = {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("covers", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /** Cached image only (memory, then disk); never touches the network. */
+    func cached(_ url: URL) -> UIImage? {
+        let key = cacheKey(url)
+        if let image = memory.object(forKey: key as NSString) { return image }
+        guard let data = try? Data(contentsOf: dir.appendingPathComponent(key)),
+              let image = UIImage(data: data) else { return nil }
+        memory.setObject(image, forKey: key as NSString)
+        return image
+    }
+
+    func fetch(_ url: URL) async -> UIImage? {
+        if let image = cached(url) { return image }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data) else { return nil }
+        try? data.write(to: dir.appendingPathComponent(cacheKey(url)))
+        memory.setObject(image, forKey: cacheKey(url) as NSString)
+        return image
+    }
+
+    /** Keyed on the URL path only, so the per-login token query is ignored. */
+    private func cacheKey(_ url: URL) -> String {
+        url.path.replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "_", options: .regularExpression)
+    }
+}
+
 // MARK: - Cover image with completion treatment (blur + check when finished)
 
 struct CoverImage: View {
     let url: URL?
     var finished = false
+    @State private var image: UIImage?
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
             } else {
                 ZStack {
                     Color(white: 0.16)
@@ -32,6 +72,17 @@ struct CoverImage: View {
             }
         }
         .aspectRatio(1, contentMode: .fit)
+        .task(id: url) {
+            guard let url else {
+                image = nil
+                return
+            }
+            if let cached = CoverCache.shared.cached(url) {
+                image = cached
+            } else {
+                image = await CoverCache.shared.fetch(url)
+            }
+        }
         .overlay {
             if finished {
                 ZStack {
@@ -315,6 +366,29 @@ struct PlaylistPickerSheet: View {
         } else {
             entries.forEach { store.add(playlist.id, entry: $0) }
             dismiss()
+        }
+    }
+}
+
+// MARK: - Top loading bar (replaces full-screen spinners during refresh)
+
+/** Thin indeterminate bar pinned to the top of a screen while data refreshes. */
+struct TopLoadingBar: View {
+    @State private var animate = false
+
+    var body: some View {
+        GeometryReader { geo in
+            Capsule()
+                .fill(Color.accentColor)
+                .frame(width: geo.size.width * 0.35, height: 3)
+                .offset(x: animate ? geo.size.width : -geo.size.width * 0.35)
+        }
+        .frame(height: 3)
+        .clipped()
+        .onAppear {
+            withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
+                animate = true
+            }
         }
     }
 }

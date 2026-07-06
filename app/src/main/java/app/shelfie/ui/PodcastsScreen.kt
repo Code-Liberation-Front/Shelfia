@@ -14,7 +14,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -48,8 +48,17 @@ private sealed interface PodcastsUi {
 fun PodcastsScreen(app: ShelfieApp, onOpenPodcast: (String) -> Unit) {
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
     val ui by produceState<PodcastsUi>(initialValue = PodcastsUi.Loading, refreshKey) {
-        value = withContext(Dispatchers.IO) {
+        // Serve cached content immediately; the network result replaces it below.
+        if (value !is PodcastsUi.Ready) {
+            val cached = withContext(Dispatchers.IO) { app.repository.cachedPodcasts() }
+            if (cached.isNotEmpty()) {
+                value = PodcastsUi.Ready(cached)
+            }
+        }
+        syncing = true
+        val fresh = withContext(Dispatchers.IO) {
             try {
                 if (!app.repository.ensureConfigured()) {
                     PodcastsUi.Error("Not logged in")
@@ -60,6 +69,11 @@ fun PodcastsScreen(app: ShelfieApp, onOpenPodcast: (String) -> Unit) {
                 PodcastsUi.Error(e.message ?: "Failed to load podcasts")
             }
         }
+        // Keep showing cached content when the refresh fails.
+        if (fresh !is PodcastsUi.Error || value !is PodcastsUi.Ready) {
+            value = fresh
+        }
+        syncing = false
         isRefreshing = false
     }
 
@@ -71,7 +85,16 @@ fun PodcastsScreen(app: ShelfieApp, onOpenPodcast: (String) -> Unit) {
         },
         modifier = Modifier.fillMaxSize(),
     ) {
-        PodcastsContent(app, onOpenPodcast, ui, onRetry = { refreshKey++ })
+        Box(Modifier.fillMaxSize()) {
+            PodcastsContent(app, onOpenPodcast, ui, onRetry = { refreshKey++ })
+            if (syncing) {
+                LinearProgressIndicator(
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter),
+                )
+            }
+        }
     }
 }
 
@@ -84,9 +107,8 @@ private fun PodcastsContent(
 ) {
     when (val state = ui) {
         is PodcastsUi.Loading -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            // First launch with no cache: the top loading bar communicates progress.
+            Box(Modifier.fillMaxSize())
         }
 
         is PodcastsUi.Error -> {

@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -62,10 +61,24 @@ fun HomeScreen(
 ) {
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
     val progressRevision by app.repository.progressRevision.collectAsState()
     val ui by produceState<HomeUi>(initialValue = HomeUi.Loading, refreshKey, progressRevision) {
         val force = refreshKey > 0
-        value = withContext(Dispatchers.IO) {
+        // Serve cached content immediately; the network result replaces it below.
+        if (value !is HomeUi.Ready) {
+            val cached = withContext(Dispatchers.IO) {
+                HomeUi.Ready(
+                    inProgress = app.repository.cachedContinueListening(limit = 12),
+                    recentlyAdded = app.repository.cachedRecentlyAdded(),
+                )
+            }
+            if (cached.inProgress.isNotEmpty() || cached.recentlyAdded.isNotEmpty()) {
+                value = cached
+            }
+        }
+        syncing = true
+        val fresh = withContext(Dispatchers.IO) {
             try {
                 if (!app.repository.ensureConfigured()) {
                     HomeUi.Error("Not logged in")
@@ -79,6 +92,11 @@ fun HomeScreen(
                 HomeUi.Error(e.message ?: "Failed to load home")
             }
         }
+        // Keep showing cached content when the refresh fails.
+        if (fresh !is HomeUi.Error || value !is HomeUi.Ready) {
+            value = fresh
+        }
+        syncing = false
         // Reset here rather than observing ui: an identical refresh result would
         // not change state and would leave the spinner stuck.
         isRefreshing = false
@@ -92,7 +110,16 @@ fun HomeScreen(
         },
         modifier = Modifier.fillMaxSize(),
     ) {
-        HomeContent(app, controller, onOpenPodcast, ui)
+        Box(Modifier.fillMaxSize()) {
+            HomeContent(app, controller, onOpenPodcast, ui)
+            if (syncing) {
+                LinearProgressIndicator(
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter),
+                )
+            }
+        }
     }
 }
 
@@ -105,9 +132,8 @@ private fun HomeContent(
 ) {
     when (val state = ui) {
         is HomeUi.Loading -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            // First launch with no cache: the top loading bar communicates progress.
+            Box(Modifier.fillMaxSize())
         }
 
         is HomeUi.Error -> {

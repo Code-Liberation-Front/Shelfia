@@ -21,7 +21,7 @@ import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -74,10 +74,31 @@ fun LatestScreen(
 ) {
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
     val progressRevision by app.repository.progressRevision.collectAsState()
     val ui by produceState<LatestUi>(initialValue = LatestUi.Loading, refreshKey, progressRevision) {
         val force = refreshKey > 0
-        value = withContext(Dispatchers.IO) {
+        // Serve cached content immediately; the network result replaces it below.
+        if (value !is LatestUi.Ready) {
+            val cached = withContext(Dispatchers.IO) {
+                val episodes = app.repository.cachedLatestEpisodes()
+                val titles = app.repository.cachedPodcasts()
+                    .associate { it.id to (it.media.metadata.title ?: "") }
+                val progress = episodes.associate { episode ->
+                    val saved = app.repository.cachedProgress(episode.libraryItemId, episode.id)
+                    episode.id to EpisodeProgressUi(
+                        fraction = (saved?.progress ?: 0.0).toFloat().coerceIn(0f, 1f),
+                        isFinished = saved?.isFinished == true,
+                    )
+                }
+                LatestUi.Ready(episodes, titles, progress)
+            }
+            if (cached.episodes.isNotEmpty()) {
+                value = cached
+            }
+        }
+        syncing = true
+        val fresh = withContext(Dispatchers.IO) {
             try {
                 if (!app.repository.ensureConfigured()) {
                     LatestUi.Error("Not logged in")
@@ -100,6 +121,11 @@ fun LatestScreen(
                 LatestUi.Error(e.message ?: "Failed to load latest episodes")
             }
         }
+        // Keep showing cached content when the refresh fails.
+        if (fresh !is LatestUi.Error || value !is LatestUi.Ready) {
+            value = fresh
+        }
+        syncing = false
         isRefreshing = false
     }
 
@@ -111,7 +137,16 @@ fun LatestScreen(
         },
         modifier = Modifier.fillMaxSize(),
     ) {
-        LatestContent(app, controller, playerState, onOpenPodcast, ui)
+        Box(Modifier.fillMaxSize()) {
+            LatestContent(app, controller, playerState, onOpenPodcast, ui)
+            if (syncing) {
+                LinearProgressIndicator(
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter),
+                )
+            }
+        }
     }
 }
 
@@ -125,9 +160,8 @@ private fun LatestContent(
 ) {
     when (val state = ui) {
         is LatestUi.Loading -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            // First launch with no cache: the top loading bar communicates progress.
+            Box(Modifier.fillMaxSize())
         }
 
         is LatestUi.Error -> {

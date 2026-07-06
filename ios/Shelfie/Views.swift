@@ -41,6 +41,9 @@ struct MainView: View {
                 OfflineTabHint()
             }
         }
+        .overlay(alignment: .top) {
+            if state.isRefreshing { TopLoadingBar() }
+        }
         .withRootToolbar()
     }
 }
@@ -119,9 +122,6 @@ struct HomeView: View {
                     }
                 }
 
-                if continueRows.isEmpty && state.podcasts.isEmpty {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 60)
-                }
             }
             .padding(.vertical, 12)
         }
@@ -131,6 +131,10 @@ struct HomeView: View {
             continueRows = await state.continueListening(force: true)
         }
         .task(id: state.progressRevision) {
+            // Cached rows render instantly; the network result replaces them.
+            if continueRows.isEmpty {
+                continueRows = state.continueListeningCached()
+            }
             continueRows = await state.continueListening()
         }
         .sheet(item: $playlistPickerFor) { entry in
@@ -194,8 +198,6 @@ struct LatestView: View {
             if !state.activeLibraryIsPodcast {
                 Text("Latest episodes are only available for podcast libraries.")
                     .foregroundStyle(.secondary)
-            } else if state.latest.isEmpty {
-                ProgressView().frame(maxWidth: .infinity)
             }
             ForEach(state.latest) { episode in
                 let itemId = episode.libraryItemId ?? ""
@@ -328,9 +330,6 @@ struct LibraryView: View {
                 }
             }
             .padding(12)
-            if state.podcasts.isEmpty {
-                ProgressView().padding(.top, 60)
-            }
         }
         .navigationTitle(state.activeLibrary?.name ?? "Library")
         .refreshable { await state.refresh(force: true) }
@@ -396,6 +395,10 @@ struct PodcastDetailView: View {
             }
         }
         .task {
+            // Cached detail renders instantly; the network result replaces it.
+            if item == nil {
+                item = state.cachedItem(itemId)
+            }
             item = await state.item(itemId)
             await state.refreshProgress()
         }

@@ -237,6 +237,56 @@ class AbsRepository(
         return item
     }
 
+    // MARK: cache-only reads — instant UI while a network refresh runs.
+
+    /** Cached podcasts (memory, then disk); never touches the network. */
+    fun cachedPodcasts(): List<LibraryItemSummary> {
+        if (podcastsCache.isNotEmpty()) return podcastsCache
+        val cached = diskCacheRead<List<LibraryItemSummary>>("podcasts.json").orEmpty()
+        if (cached.isNotEmpty()) podcastsCache = cached
+        return cached
+    }
+
+    /** Cached latest episodes (memory, then disk); never touches the network. */
+    fun cachedLatestEpisodes(): List<PodcastEpisode> {
+        if (latestCache.isNotEmpty()) return latestCache
+        val cached = diskCacheRead<List<PodcastEpisode>>("latest.json").orEmpty()
+        if (cached.isNotEmpty()) latestCache = cached
+        return cached
+    }
+
+    fun cachedRecentlyAdded(limit: Int = 12): List<LibraryItemSummary> =
+        cachedPodcasts().sortedByDescending { it.addedAt }.take(limit)
+
+    private fun cachedItem(itemId: String): LibraryItemExpanded? =
+        itemCache[itemId] ?: diskCacheRead<LibraryItemExpanded>("item_$itemId.json")
+            ?.also { itemCache[itemId] = it }
+
+    private fun cachedProgressMap(): Map<String, MediaProgress> {
+        if (progressCache.isNotEmpty()) return progressCache
+        val cached = diskCacheRead<List<MediaProgress>>("progress.json")
+            ?.associateBy { "${it.libraryItemId}:${it.episodeId ?: ""}" }
+            .orEmpty()
+        if (cached.isNotEmpty()) progressCache = cached
+        return cached
+    }
+
+    fun cachedProgress(itemId: String, episodeId: String): MediaProgress? =
+        cachedProgressMap()["$itemId:$episodeId"]
+
+    /** Continue-listening rows resolvable purely from cache (entries without a cached podcast are skipped). */
+    fun cachedContinueListening(limit: Int = 15): List<InProgressEpisode> =
+        cachedProgressMap().values
+            .filter { it.episodeId != null && !it.isFinished && it.currentTime > 0 }
+            .sortedByDescending { it.lastUpdate }
+            .take(limit)
+            .mapNotNull { mp ->
+                val podcast = cachedItem(mp.libraryItemId) ?: return@mapNotNull null
+                val episode = podcast.media.episodes.firstOrNull { it.id == mp.episodeId }
+                    ?: return@mapNotNull null
+                InProgressEpisode(podcast, episode, mp.progress.coerceIn(0.0, 1.0))
+            }
+
     /** Server-side listening progress, cached briefly to avoid hammering /api/me. */
     private suspend fun progressMap(maxAgeMs: Long = 30_000): Map<String, MediaProgress> {
         val now = System.currentTimeMillis()

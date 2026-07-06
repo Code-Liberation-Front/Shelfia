@@ -22,6 +22,8 @@ final class AppState: ObservableObject {
     /** Bumped whenever progress changes locally so screens can reload. */
     @Published var progressRevision = 0
     @Published var isOnline = true
+    /** True while a background network refresh runs (drives the top loading bar). */
+    @Published var isRefreshing = false
 
     private var progressFetchedAt: Date = .distantPast
     private var itemCache: [String: LibraryItemExpanded] = [:]
@@ -32,6 +34,7 @@ final class AppState: ObservableObject {
             client.serverUrl = Settings.serverUrl
             client.token = Settings.token
             loggedIn = true
+            loadCachedState()
         }
         pathMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in self?.isOnline = path.status == .satisfied }
@@ -77,10 +80,44 @@ final class AppState: ObservableObject {
         PlayerManager.shared.stop()
     }
 
+    /**
+     Populates state from the on-disk cache so screens render instantly at
+     launch; refresh() replaces it with fresh data in the background.
+     */
+    private func loadCachedState() {
+        if let cached: LibrariesResponse = client.cachedOnly("libraries.json") {
+            libraries = cached.libraries
+        }
+        let saved = Settings.libraryId
+        if !saved.isEmpty, libraries.contains(where: { $0.id == saved }) {
+            activeLibraryId = saved
+        } else {
+            activeLibraryId = libraries.first(where: { $0.mediaType == "podcast" })?.id
+                ?? libraries.first?.id ?? ""
+        }
+        if !activeLibraryId.isEmpty {
+            if let cached: LibraryItemsResponse = client.cachedOnly("items_\(activeLibraryId).json") {
+                podcasts = cached.results
+            }
+            if let cached: RecentEpisodesResponse = client.cachedOnly("latest_\(activeLibraryId).json") {
+                latest = cached.episodes.sorted { ($0.publishedAt ?? 0) > ($1.publishedAt ?? 0) }
+            }
+        }
+        if let entries: [MediaProgress] = client.cachedOnly("progress.json") {
+            var map: [String: MediaProgress] = [:]
+            for p in entries {
+                map["\(p.libraryItemId ?? ""):\(p.episodeId ?? "")"] = p
+            }
+            progressByKey = map
+        }
+    }
+
     // MARK: Library
 
     func refresh(force: Bool = false) async {
         guard client.isConfigured else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
         do {
             libraries = try await client.libraries()
             let saved = Settings.libraryId
@@ -140,6 +177,15 @@ final class AppState: ObservableObject {
         }
         progressByKey = map
         progressFetchedAt = Date()
+        client.writeCache(entries, cacheKey: "progress.json")
+    }
+
+    /** Item detail from cache only (memory, then disk); never touches the network. */
+    func cachedItem(_ id: String) -> LibraryItemExpanded? {
+        if let cached = itemCache[id] { return cached }
+        guard let item: LibraryItemExpanded = client.cachedOnly("item_\(id).json") else { return nil }
+        itemCache[id] = item
+        return item
     }
 
     func progressFor(itemId: String, episodeId: String?) -> MediaProgress? {
@@ -210,6 +256,21 @@ final class AppState: ObservableObject {
         let episode: PodcastEpisode
         let progress: Double
         var id: String { "\(podcast.id):\(episode.id)" }
+    }
+
+    /** Continue-listening rows resolvable purely from cache, for instant rendering. */
+    func continueListeningCached(limit: Int = 12) -> [InProgressEpisode] {
+        progressByKey.values
+            .filter { $0.episodeId != nil && !$0.finished && ($0.currentTime ?? 0) > 0 }
+            .sorted { ($0.lastUpdate ?? 0) > ($1.lastUpdate ?? 0) }
+            .prefix(limit)
+            .compactMap { p in
+                guard let itemId = p.libraryItemId, let episodeId = p.episodeId,
+                      let podcast = cachedItem(itemId),
+                      let episode = podcast.episodes.first(where: { $0.id == episodeId })
+                else { return nil }
+                return InProgressEpisode(podcast: podcast, episode: episode, progress: p.fraction)
+            }
     }
 
     /** Episodes started but unfinished, most recently played first. */

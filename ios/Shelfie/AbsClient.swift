@@ -80,6 +80,20 @@ final class AbsClient {
         }
     }
 
+    /** Cache-only read; never touches the network. */
+    func cachedOnly<T: Codable>(_ cacheKey: String) -> T? {
+        guard let data = try? Data(contentsOf: cacheDir.appendingPathComponent(cacheKey)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    func writeCache<T: Codable>(_ value: T, cacheKey: String) {
+        if let data = try? JSONEncoder().encode(value) {
+            try? data.write(to: cacheDir.appendingPathComponent(cacheKey))
+        }
+    }
+
     func clearCache() {
         try? FileManager.default.removeItem(at: cacheDir)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
