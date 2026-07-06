@@ -55,18 +55,18 @@ jobs:
             echo "$ASC_KEY_P8" | base64 -d > ~/private_keys/AuthKey_$ASC_KEY_ID.p8
           fi
 
+          # Archive unsigned: signing happens at export with the reusable
+          # cloud-managed Apple Distribution certificate. Signing the archive
+          # here would mint a new Apple Development certificate per ephemeral
+          # runner until the account hits Apple's certificate cap.
           xcodebuild archive \
             -project ios/Shelfie.xcodeproj \
             -scheme Shelfie \
             -destination 'generic/platform=iOS' \
             -archivePath build/Shelfie.xcarchive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_$ASC_KEY_ID.p8 \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
-            CODE_SIGN_IDENTITY="Apple Distribution"
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
           cat > build/ExportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
