@@ -3,6 +3,7 @@ package app.shelfie.download
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import app.shelfie.data.InsecureTls
 import app.shelfie.data.AbsRepository
 import app.shelfie.data.LibraryItemExpanded
 import app.shelfie.data.PodcastEpisode
@@ -71,7 +72,7 @@ class DownloadCenter(
     private val internalDir = File(context.filesDir, "episodes").apply { mkdirs() }
     private val indexFile = File(context.filesDir, "downloads_index.json")
     private val json = Json { ignoreUnknownKeys = true }
-    private val client = OkHttpClient()
+    private val client = InsecureTls.apply(OkHttpClient.Builder()).build()
     private val jobs = ConcurrentHashMap<String, Job>()
 
     @Volatile

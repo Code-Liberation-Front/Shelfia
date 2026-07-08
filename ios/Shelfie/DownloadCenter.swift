@@ -100,7 +100,7 @@ final class DownloadCenter: NSObject, ObservableObject {
         durations[key] = episode.durationSec
 
         let podcastTitle = podcast.title
-        let task = URLSession.shared.downloadTask(with: url) { [weak self] tmp, response, error in
+        let task = Network.session.downloadTask(with: url) { [weak self] tmp, response, error in
             Task { @MainActor in
                 guard let self else { return }
                 self.tasks[key] = nil

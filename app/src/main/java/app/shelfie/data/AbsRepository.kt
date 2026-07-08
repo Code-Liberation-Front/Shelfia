@@ -115,7 +115,7 @@ class AbsRepository(
     }
 
     private fun fetchOidcRedirect(server: String, authUrl: String): Pair<String, String> {
-        val client = OkHttpClient.Builder().followRedirects(false).build()
+        val client = InsecureTls.apply(OkHttpClient.Builder().followRedirects(false)).build()
         client.newCall(Request.Builder().url(authUrl).build()).execute().use { response ->
             if (response.code !in 300..399) {
                 val body = runCatching { response.body?.string() }.getOrNull()
@@ -465,7 +465,7 @@ class AbsRepository(
     }.getOrNull()
 
     private fun buildApi(serverUrl: String, token: String?): AbsApi {
-        val client = OkHttpClient.Builder()
+        val client = InsecureTls.apply(OkHttpClient.Builder())
             .addInterceptor { chain ->
                 val request = if (token != null) {
                     chain.request().newBuilder()

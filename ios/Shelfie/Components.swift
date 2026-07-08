@@ -40,7 +40,7 @@ final class CoverCache {
 
     func fetch(_ url: URL) async -> UIImage? {
         if let image = cached(url) { return image }
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
+        guard let (data, _) = try? await Network.session.data(from: url),
               let image = UIImage(data: data) else { return nil }
         try? data.write(to: dir.appendingPathComponent(cacheKey(url)))
         memory.setObject(image, forKey: cacheKey(url) as NSString)
