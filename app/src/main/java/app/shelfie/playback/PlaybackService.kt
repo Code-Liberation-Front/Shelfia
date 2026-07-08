@@ -316,8 +316,21 @@ class PlaybackService : MediaLibraryService() {
                 .add(SessionCommand(COMMAND_SKIP_BACK, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SKIP_FORWARD, Bundle.EMPTY))
                 .build()
+            // Withhold next/previous-track commands: with whole-podcast queues
+            // there is always a next item, and Android Auto plus the media
+            // notification would put next-track (⏭) in the forward slot,
+            // displacing the custom forward-30 button. Auto-advance at episode
+            // end is unaffected.
+            val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+                .buildUpon()
+                .remove(Player.COMMAND_SEEK_TO_NEXT)
+                .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
+                .setAvailablePlayerCommands(playerCommands)
                 .build()
         }
 
