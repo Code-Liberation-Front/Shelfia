@@ -7,6 +7,35 @@ struct AbsError: LocalizedError {
 }
 
 /**
+ Accepts any TLS certificate. Self-hosted Audiobookshelf servers commonly run
+ with self-signed or otherwise untrusted certificates (or plain HTTP), so the
+ app trusts whatever the user's server presents instead of failing.
+ */
+class TrustAllDelegate: NSObject, URLSessionDelegate {
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+}
+
+enum Network {
+    /** Shared session that trusts self-signed server certificates. */
+    static let session = URLSession(
+        configuration: .default,
+        delegate: TrustAllDelegate(),
+        delegateQueue: nil
+    )
+}
+
+/**
  HTTP client for the Audiobookshelf REST API, mirroring the Android
  AbsApi/AbsRepository pair: Bearer-token auth for JSON endpoints, `?token=`
  query auth for media URLs, and a disk JSON cache so reads keep working
@@ -53,7 +82,7 @@ final class AbsClient {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await Network.session.data(for: req)
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
             throw AbsError(message: "Server error HTTP \(http.statusCode)")
         }
@@ -189,7 +218,7 @@ final class AbsClient {
         if !pending.cookies.isEmpty {
             req.setValue(pending.cookies, forHTTPHeaderField: "Cookie")
         }
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await Network.session.data(for: req)
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
             throw AbsError(message: "Sign-in failed (HTTP \(http.statusCode))")
         }
@@ -199,7 +228,8 @@ final class AbsClient {
         return login.user
     }
 
-    private final class NoRedirect: NSObject, URLSessionTaskDelegate {
+    /** Blocks redirects (to capture the IdP Location) and trusts any certificate. */
+    private final class NoRedirect: TrustAllDelegate, URLSessionTaskDelegate {
         func urlSession(
             _ session: URLSession, task: URLSessionTask,
             willPerformHTTPRedirection response: HTTPURLResponse,

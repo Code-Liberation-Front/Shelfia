@@ -67,6 +67,8 @@ final class PlayerManager: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
     private var artworkCache: (URL, MPMediaItemArtwork)?
+    private let streamLoader = StreamLoader()
+    private let streamLoaderQueue = DispatchQueue(label: "stream-loader")
 
     private init() {
         setupRemoteCommands()
@@ -272,7 +274,16 @@ final class PlayerManager: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(true)
 
         teardownItemObservers()
-        let item = AVPlayerItem(url: entry.url)
+        // HTTPS streams route through the resource loader so self-signed
+        // certificates play; local files and plain HTTP go direct.
+        let item: AVPlayerItem
+        if let wrapped = StreamLoader.wrap(entry.url) {
+            let asset = AVURLAsset(url: wrapped)
+            asset.resourceLoader.setDelegate(streamLoader, queue: streamLoaderQueue)
+            item = AVPlayerItem(asset: asset)
+        } else {
+            item = AVPlayerItem(url: entry.url)
+        }
         if player == nil {
             player = AVPlayer()
         }
@@ -436,7 +447,7 @@ final class PlayerManager: ObservableObject {
             info[MPMediaItemPropertyArtwork] = artwork
         } else if let coverUrl = now.coverUrl {
             Task { [weak self] in
-                guard let (data, _) = try? await URLSession.shared.data(from: coverUrl),
+                guard let (data, _) = try? await Network.session.data(from: coverUrl),
                       let image = UIImage(data: data) else { return }
                 let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
                 await MainActor.run {
