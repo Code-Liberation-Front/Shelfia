@@ -1,4 +1,4 @@
-# Shelfia
+# Shelfie
 
 A better podcast client for [Audiobookshelf](https://www.audiobookshelf.org/) on Android, inspired by Overcast on iOS — with full **Android Auto** support.
 
