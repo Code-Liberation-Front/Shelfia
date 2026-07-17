@@ -82,8 +82,13 @@ private const val STATUS_PARTIALLY_PLAYED = 1
 private const val STATUS_FULLY_PLAYED = 2
 
 // Custom session commands so Android Auto shows the app's skip buttons.
+// Episode skip is exposed as custom commands too (rather than the player's
+// seek-to-next/previous commands) so Auto and the notification never replace
+// the custom forward-30 button with a plain next-track button.
 private const val COMMAND_SKIP_BACK = "app.shelfie.SKIP_BACK_10"
 private const val COMMAND_SKIP_FORWARD = "app.shelfie.SKIP_FORWARD_30"
+private const val COMMAND_PREV_EPISODE = "app.shelfie.PREV_EPISODE"
+private const val COMMAND_NEXT_EPISODE = "app.shelfie.NEXT_EPISODE"
 
 @UnstableApi
 class PlaybackService : MediaLibraryService() {
@@ -137,9 +142,29 @@ class PlaybackService : MediaLibraryService() {
             .setSessionCommand(SessionCommand(COMMAND_SKIP_FORWARD, Bundle.EMPTY))
             .setSlots(CommandButton.SLOT_FORWARD)
             .build()
+        // Episode skip sits inboard of the seek buttons (nearer play/pause).
+        val prevEpisodeButton = CommandButton.Builder()
+            .setDisplayName("Previous episode")
+            .setIconResId(R.drawable.ic_skip_previous_episode)
+            .setSessionCommand(SessionCommand(COMMAND_PREV_EPISODE, Bundle.EMPTY))
+            .setSlots(CommandButton.SLOT_BACK, CommandButton.SLOT_OVERFLOW)
+            .build()
+        val nextEpisodeButton = CommandButton.Builder()
+            .setDisplayName("Next episode")
+            .setIconResId(R.drawable.ic_skip_next_episode)
+            .setSessionCommand(SessionCommand(COMMAND_NEXT_EPISODE, Bundle.EMPTY))
+            .setSlots(CommandButton.SLOT_FORWARD, CommandButton.SLOT_OVERFLOW)
+            .build()
         mediaSession = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(sessionActivity)
-            .setCustomLayout(listOf(skipBackButton, skipForwardButton))
+            .setCustomLayout(
+                listOf(
+                    skipBackButton,
+                    prevEpisodeButton,
+                    nextEpisodeButton,
+                    skipForwardButton,
+                ),
+            )
             .build()
 
         player.addListener(object : Player.Listener {
@@ -315,6 +340,8 @@ class PlaybackService : MediaLibraryService() {
                 .buildUpon()
                 .add(SessionCommand(COMMAND_SKIP_BACK, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SKIP_FORWARD, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_PREV_EPISODE, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_NEXT_EPISODE, Bundle.EMPTY))
                 .build()
             // Withhold next/previous-track commands: with whole-podcast queues
             // there is always a next item, and Android Auto plus the media
@@ -348,6 +375,24 @@ class PlaybackService : MediaLibraryService() {
 
                 COMMAND_SKIP_FORWARD -> {
                     activePlayer?.seekForward()
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
+                COMMAND_PREV_EPISODE -> {
+                    activePlayer?.let { p ->
+                        // Restart the current episode if we're well into it,
+                        // otherwise jump to the previous one.
+                        if (p.currentPosition > 3_000 || !p.hasPreviousMediaItem()) {
+                            p.seekTo(0)
+                        } else {
+                            p.seekToPreviousMediaItem()
+                        }
+                    }
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
+                COMMAND_NEXT_EPISODE -> {
+                    activePlayer?.takeIf { it.hasNextMediaItem() }?.seekToNextMediaItem()
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
