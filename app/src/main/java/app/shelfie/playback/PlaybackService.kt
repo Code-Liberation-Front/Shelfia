@@ -17,6 +17,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
@@ -167,6 +168,13 @@ class PlaybackService : MediaLibraryService() {
                 ),
             )
             .build()
+
+        // The default notification builder appends custom actions after
+        // play/pause, so its row order can't be controlled by the custom
+        // layout alone. Use a provider that fixes the expanded-notification
+        // order to back-10 / prev-episode / play / next-episode / forward-30
+        // and shows the two seek buttons plus play/pause in the compact view.
+        setMediaNotificationProvider(ShelfieNotificationProvider(this))
 
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -1010,4 +1018,51 @@ class PlaybackService : MediaLibraryService() {
     }
 
     // endregion
+}
+
+/**
+ * Fixes the media-notification button order, which the default provider
+ * derives from its own heuristics (custom actions appended after play/pause).
+ * The expanded notification becomes:
+ *   [back-10] [previous episode] [play/pause] [next episode] [forward-30]
+ * and the compact view shows back-10 / play-pause / forward-30.
+ */
+@UnstableApi
+private class ShelfieNotificationProvider(context: android.content.Context) :
+    DefaultMediaNotificationProvider(context) {
+
+    override fun getMediaButtons(
+        session: MediaSession,
+        playerCommands: Player.Commands,
+        customLayout: ImmutableList<CommandButton>,
+        showPauseButton: Boolean,
+    ): ImmutableList<CommandButton> {
+        val default = super.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
+        // The play/pause button is the one the base provider synthesises; it
+        // carries a player command and no custom session command.
+        val playPause = default.firstOrNull { it.sessionCommand == null } ?: return default
+        fun button(action: String) =
+            customLayout.firstOrNull { it.sessionCommand?.customAction == action }
+        val ordered = listOfNotNull(
+            button(COMMAND_SKIP_BACK),
+            button(COMMAND_PREV_EPISODE),
+            playPause,
+            button(COMMAND_NEXT_EPISODE),
+            button(COMMAND_SKIP_FORWARD),
+        )
+        // Fall back to the default set if any expected button is missing.
+        return if (ordered.size == default.size) ImmutableList.copyOf(ordered) else default
+    }
+
+    override fun addNotificationActions(
+        mediaSession: MediaSession,
+        mediaButtons: ImmutableList<CommandButton>,
+        builder: androidx.core.app.NotificationCompat.Builder,
+        actionFactory: androidx.media3.session.MediaNotification.ActionFactory,
+    ): IntArray {
+        super.addNotificationActions(mediaSession, mediaButtons, builder, actionFactory)
+        // Compact view: back-10, play/pause, forward-30 (indices 0, 2, 4 in the
+        // ordered list above), clamped to whatever is actually present.
+        return intArrayOf(0, 2, 4).filter { it < mediaButtons.size }.toIntArray()
+    }
 }
