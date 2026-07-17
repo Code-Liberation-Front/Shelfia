@@ -1038,20 +1038,25 @@ private class ShelfieNotificationProvider(context: android.content.Context) :
         showPauseButton: Boolean,
     ): ImmutableList<CommandButton> {
         val default = super.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
-        // The play/pause button is the one the base provider synthesises; it
-        // carries a player command and no custom session command.
-        val playPause = default.firstOrNull { it.sessionCommand == null } ?: return default
         fun button(action: String) =
-            customLayout.firstOrNull { it.sessionCommand?.customAction == action }
-        val ordered = listOfNotNull(
-            button(COMMAND_SKIP_BACK),
-            button(COMMAND_PREV_EPISODE),
-            playPause,
-            button(COMMAND_NEXT_EPISODE),
-            button(COMMAND_SKIP_FORWARD),
-        )
-        // Fall back to the default set if any expected button is missing.
-        return if (ordered.size == default.size) ImmutableList.copyOf(ordered) else default
+            default.firstOrNull { it.sessionCommand?.customAction == action }
+        val skipBack = button(COMMAND_SKIP_BACK)
+        val prevEp = button(COMMAND_PREV_EPISODE)
+        val nextEp = button(COMMAND_NEXT_EPISODE)
+        val skipForward = button(COMMAND_SKIP_FORWARD)
+        if (skipBack == null || prevEp == null || nextEp == null || skipForward == null) {
+            return default
+        }
+        // Some Media3 versions include the play/pause button in this list
+        // (no session command); others insert it later. Order around it when
+        // present, otherwise keep left-to-right order so play lands centre.
+        val playPause = default.firstOrNull { it.sessionCommand == null }
+        val ordered = if (playPause != null) {
+            listOf(skipBack, prevEp, playPause, nextEp, skipForward)
+        } else {
+            listOf(skipBack, prevEp, nextEp, skipForward)
+        }
+        return ImmutableList.copyOf(ordered)
     }
 
     override fun addNotificationActions(
@@ -1061,8 +1066,15 @@ private class ShelfieNotificationProvider(context: android.content.Context) :
         actionFactory: androidx.media3.session.MediaNotification.ActionFactory,
     ): IntArray {
         super.addNotificationActions(mediaSession, mediaButtons, builder, actionFactory)
-        // Compact view: back-10, play/pause, forward-30 (indices 0, 2, 4 in the
-        // ordered list above), clamped to whatever is actually present.
-        return intArrayOf(0, 2, 4).filter { it < mediaButtons.size }.toIntArray()
+        // Compact view: the two seek buttons plus play/pause if it is part of
+        // this list, located by identity so the indices stay correct whatever
+        // the list length.
+        fun indexOfAction(action: String) =
+            mediaButtons.indexOfFirst { it.sessionCommand?.customAction == action }
+        return listOf(
+            indexOfAction(COMMAND_SKIP_BACK),
+            mediaButtons.indexOfFirst { it.sessionCommand == null },
+            indexOfAction(COMMAND_SKIP_FORWARD),
+        ).filter { it >= 0 }.toIntArray()
     }
 }
