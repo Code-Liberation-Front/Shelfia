@@ -126,10 +126,12 @@ class PlaybackService : MediaLibraryService() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        // Pin each skip action to an explicit slot so surfaces that place
-        // buttons by slot (Android Auto) keep back-10 on the left and
-        // forward-30 on the right. Without slots, Auto orders the two custom
-        // actions by its own heuristics and renders them flipped.
+        // Target row on Android Auto (left to right):
+        //   [back-10] [prev-episode] [play/pause] [next-episode] [forward-30]
+        // The seek buttons take the outer positions and the episode-skip
+        // buttons sit inboard, nearer play/pause. Both buttons on each side
+        // share a slot; Auto renders them in custom-layout order, with the
+        // episode button listed first so it lands closest to play/pause.
         val skipBackButton = CommandButton.Builder()
             .setDisplayName("Back 10 seconds")
             .setIconResId(R.drawable.ic_skip_back_10)
@@ -142,7 +144,6 @@ class PlaybackService : MediaLibraryService() {
             .setSessionCommand(SessionCommand(COMMAND_SKIP_FORWARD, Bundle.EMPTY))
             .setSlots(CommandButton.SLOT_FORWARD)
             .build()
-        // Episode skip sits inboard of the seek buttons (nearer play/pause).
         val prevEpisodeButton = CommandButton.Builder()
             .setDisplayName("Previous episode")
             .setIconResId(R.drawable.ic_skip_previous_episode)
@@ -159,8 +160,8 @@ class PlaybackService : MediaLibraryService() {
             .setSessionActivity(sessionActivity)
             .setCustomLayout(
                 listOf(
-                    skipBackButton,
                     prevEpisodeButton,
+                    skipBackButton,
                     nextEpisodeButton,
                     skipForwardButton,
                 ),
